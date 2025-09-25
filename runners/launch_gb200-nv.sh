@@ -163,7 +163,7 @@ else # if statement at the top - search for "FRAMEWORK_DIFF_IF_STATEMENT #2"
     # Always clone and setup Dynamo
     echo "Cloning Dynamo repository..."
     rm -rf "$DYNAMO_PATH"
-    git clone --branch update-wait-for-model https://github.com/Elnifio/dynamo.git $DYNAMO_PATH
+    git clone https://github.com/ai-dynamo/dynamo.git $DYNAMO_PATH
     cd "$DYNAMO_PATH"
 
     # Navigate to corresponding directory
