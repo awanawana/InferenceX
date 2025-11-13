@@ -1,19 +1,18 @@
 #!/usr/bin/env bash
 
-# Source benchmark utilities early
-source "$(dirname "$0")/benchmark_lib.sh"
-
-check_env_vars \
-    MODEL \
-    PORT \
-    TP \
-    CONC \
-    ISL \
-    OSL \
-    MAX_MODEL_LEN \
-    RANDOM_RANGE_RATIO \
-    RESULT_FILENAME \
-    NUM_PROMPTS
+# === Required Env Vars === 
+# HF_TOKEN
+# HF_HUB_CACHE
+# IMAGE
+# MODEL
+# ISL
+# OSL
+# MAX_MODEL_LEN
+# RANDOM_RANGE_RATIO
+# TP
+# CONC
+# RESULT_FILENAME
+# PORT_OFFSET
 
 nvidia-smi
 
@@ -32,41 +31,44 @@ else
 fi
 
 cat > config.yaml << EOF
-kv-cache-dtype: fp8
-compilation-config: '{"pass_config":{"fuse_allreduce_rms":true,"eliminate_noops":true}}'
+compilation-config: '{"pass_config":{"enable_fi_allreduce_fusion":true,"enable_attn_fusion":true,"enable_noop":true},"custom_ops":["+rms_norm"],"cudagraph_mode":"FULL_AND_PIECEWISE"}'
 async-scheduling: true
 no-enable-prefix-caching: true
-max-cudagraph-capture-size: 2048
+cuda-graph-sizes: 2048
 max-num-batched-tokens: 8192
 max-model-len: $CALCULATED_MAX_MODEL_LEN
 EOF
 
 export TORCH_CUDA_ARCH_LIST="10.0"
+export VLLM_FLASHINFER_ALLREDUCE_FUSION_THRESHOLDS_MB='{"2":32,"4":32,"8":8}'
 export PYTHONNOUSERSITE=1
 export VLLM_USE_FLASHINFER_MOE_MXFP4_MXFP8=1
-
 SERVER_LOG=$(mktemp /tmp/server-XXXXXX.log)
 
 set -x
 vllm serve $MODEL --host 0.0.0.0 --port $PORT --config config.yaml \
---gpu-memory-utilization 0.9 --tensor-parallel-size $TP --max-num-seqs 512 \
-> $SERVER_LOG 2>&1 &
+--gpu-memory-utilization 0.9 --tensor-parallel-size $TP --max-num-seqs $CONC \
+--disable-log-requests > $SERVER_LOG 2>&1 &
 
-SERVER_PID=$!
-
-# Wait for server to be ready
-wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$SERVER_PID"
+# Show logs until server is ready
+tail -f $SERVER_LOG &
+TAIL_PID=$!
+set +x
+until curl --output /dev/null --silent --fail http://0.0.0.0:$PORT/health; do
+    sleep 5
+done
+kill $TAIL_PID
 
 pip install -q datasets pandas
-
-run_benchmark_serving \
-    --model "$MODEL" \
-    --port "$PORT" \
-    --backend vllm \
-    --input-len "$ISL" \
-    --output-len "$OSL" \
-    --random-range-ratio "$RANDOM_RANGE_RATIO" \
-    --num-prompts "$NUM_PROMPTS" \
-    --max-concurrency "$CONC" \
-    --result-filename "$RESULT_FILENAME" \
-    --result-dir /workspace/
+set -x
+BENCH_SERVING_DIR=$(mktemp -d /tmp/bmk-XXXXXX)
+git clone https://github.com/kimbochen/bench_serving.git $BENCH_SERVING_DIR
+python3 $BENCH_SERVING_DIR/benchmark_serving.py \
+--model $MODEL  --backend vllm --base-url http://localhost:$PORT \
+--dataset-name random \
+--random-input-len $ISL --random-output-len $OSL --random-range-ratio $RANDOM_RANGE_RATIO \
+--num-prompts $(( $CONC * 10 )) \
+--max-concurrency $CONC \
+--request-rate inf --ignore-eos \
+--save-result --percentile-metrics 'ttft,tpot,itl,e2el' \
+--result-dir /workspace/ --result-filename $RESULT_FILENAME.json
