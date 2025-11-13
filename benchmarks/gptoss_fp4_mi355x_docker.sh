@@ -30,4 +30,40 @@ vllm serve $MODEL --port $PORT \
 --block-size=64 \
 --no-enable-prefix-caching \
 --disable-log-requests \
---async-scheduling
+--async-scheduling | tee $(mktemp /tmp/server-XXXXXX.log) &
+
+# Show server logs til' it is up, then stop showing
+VLLM_PID=$!
+set +x
+until curl --output /dev/null --silent --fail http://localhost:$PORT/health; do
+    sleep 5
+done
+pkill -P $$ tee 2>/dev/null
+
+if [[ "$MODEL" == "amd/DeepSeek-R1-0528-MXFP4-Preview" || "$MODEL" == "deepseek-ai/DeepSeek-R1-0528" ]]; then
+  if [[ "$OSL" == "8192" ]]; then
+    NUM_PROMPTS=$(( CONC * 20 ))
+  else
+    NUM_PROMPTS=$(( CONC * 50 ))
+  fi
+else
+  NUM_PROMPTS=$(( CONC * 10 ))
+fi
+
+git clone https://github.com/kimbochen/bench_serving.git
+
+set -x
+docker run --rm --network=$network_name --name=$client_name \
+-v $GITHUB_WORKSPACE:/workspace/ -w /workspace/ \
+-e HF_TOKEN -e PYTHONPYCACHEPREFIX=/tmp/pycache/ \
+--entrypoint=python3 \
+$IMAGE \
+bench_serving/benchmark_serving.py \
+--model=$MODEL --backend=vllm --base-url="http://localhost:$PORT" \
+--dataset-name=random \
+--random-input-len=$ISL --random-output-len=$OSL --random-range-ratio=$RANDOM_RANGE_RATIO \
+--num-prompts=$NUM_PROMPTS \
+--max-concurrency=$CONC \
+--request-rate=inf --ignore-eos \
+--save-result --percentile-metrics="ttft,tpot,itl,e2el" \
+--result-dir=/workspace/ --result-filename=$RESULT_FILENAME.json
