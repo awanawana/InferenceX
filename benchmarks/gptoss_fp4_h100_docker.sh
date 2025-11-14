@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 
-# === Required Env Vars === 
+# === Required Env Vars ===
 # HF_TOKEN
 # HF_HUB_CACHE
 # MODEL
+# ISL
+# OSL
 # MAX_MODEL_LEN
 # RANDOM_RANGE_RATIO
 # TP
@@ -12,6 +14,7 @@
 # OSL
 
 
+# Create a basic vLLM config
 cat > config.yaml << EOF
 compilation-config: '{"cudagraph_mode":"PIECEWISE"}'
 async-scheduling: true
@@ -24,6 +27,7 @@ EOF
 export PYTHONNOUSERSITE=1
 SERVER_LOG=$(mktemp /tmp/server-XXXXXX.log)
 
+# Start server in the background, shld be openai/gpt-oss-120b
 set -x
 vllm serve $MODEL --host=0.0.0.0 --port=$PORT \
 --config config.yaml \

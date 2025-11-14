@@ -16,7 +16,6 @@
 
 echo "JOB $SLURM_JOB_ID running on $SLURMD_NODENAME"
 
-set -x
 hf download $MODEL
 pip install datasets pandas
 
@@ -40,6 +39,7 @@ max-model-len: $CALCULATED_MAX_MODEL_LEN
 EOF
 
 SERVER_LOG=$(mktemp /tmp/server-XXXXXX.log)
+export TORCH_CUDA_ARCH_LIST="9.0"
 PORT=$(( 8888 + $PORT_OFFSET ))
 
 export TORCH_CUDA_ARCH_LIST="9.0"
