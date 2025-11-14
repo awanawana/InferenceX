@@ -22,6 +22,8 @@ export VLLM_USE_AITER_UNIFIED_ATTENTION=1
 export VLLM_ROCM_USE_AITER_MHA=0
 export VLLM_ROCM_USE_AITER_FUSED_MOE_A16W4=1
 
+SERVER_LOG=$(mktemp /tmp/server-XXXXXX.log)
+
 set -x
 vllm serve $MODEL --port $PORT \
 --tensor-parallel-size=$TP \
@@ -32,18 +34,20 @@ vllm serve $MODEL --port $PORT \
 --block-size=64 \
 --no-enable-prefix-caching \
 --disable-log-requests \
---async-scheduling | tee $(mktemp /tmp/server-XXXXXX.log) &
+--async-scheduling > $SERVER_LOG 2>&1 &
 
-# Show server logs til' it is up, then stop showing
+# Show logs until server is ready
+tail -f $SERVER_LOG &
+TAIL_PID=$!
 set +x
-until curl --output /dev/null --silent --fail http://localhost:$PORT/health; do
+until curl --output /dev/null --silent --fail http://0.0.0.0:$PORT/health; do
     sleep 5
 done
-pkill -P $$ tee 2>/dev/null
+kill $TAIL_PID
 
+set -x
 BENCH_SERVING_DIR=$(mktemp -d /tmp/bmk-XXXXXX)
 git clone https://github.com/kimbochen/bench_serving.git $BENCH_SERVING_DIR
-set -x
 python3 $BENCH_SERVING_DIR/benchmark_serving.py \
 --model=$MODEL --backend=vllm --base-url="http://localhost:$PORT" \
 --dataset-name=random \
