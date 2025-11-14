@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 
-# Source benchmark utilities early
-source "$(dirname "$0")/benchmark_lib.sh"
-
-check_env_vars \
-    MODEL \
-    TP \
-    CONC \
-    ISL \
-    OSL \
-    MAX_MODEL_LEN \
-    RANDOM_RANGE_RATIO \
-    RESULT_FILENAME \
-    PORT_OFFSET \
-    DP_ATTENTION \
-    EP_SIZE
+# === Required Env Vars === 
+# HF_TOKEN
+# HF_HUB_CACHE
+# IMAGE
+# MODEL
+# ISL
+# OSL
+# MAX_MODEL_LEN
+# RANDOM_RANGE_RATIO
+# TP
+# CONC
+# RESULT_FILENAME
+# PORT_OFFSET
+# DP_ATTENTION
+# EP_SIZE
 
 # GPTOSS TRTLLM Deployment Guide:
 # https://github.com/NVIDIA/TensorRT-LLM/blob/main/docs/source/deployment-guide/quick-start-recipe-for-gpt-oss-on-trtllm.md
@@ -34,6 +34,7 @@ echo "MOE_BACKEND set to '$MOE_BACKEND'"
 
 EXTRA_CONFIG_FILE="gptoss-fp4.yml"
 export TRTLLM_ENABLE_PDL=1
+export NCCL_GRAPH_REGISTER=0
 
 cat > $EXTRA_CONFIG_FILE << EOF
 cuda_graph_config:
@@ -52,16 +53,6 @@ moe_config:
 EOF
 
 if [[ "$DP_ATTENTION" == "true" ]]; then
-    # DISABLE All2All for MoE TP
-    if [[ "$EP_SIZE" -eq 1 ]]; then
-        # DTP Alltoall Environment variables for EP_SIZE == 1
-        export TRTLLM_FORCE_ALLTOALL_METHOD="NotEnabled"
-    elif [[ "$EP_SIZE" -gt 1 ]]; then
-        # DEP
-        export TRTLLM_MOE_ALLTOALL_BACKEND="mnnvlthroughput"
-        export TRTLLM_FORCE_ALLTOALL_METHOD="MNNVL"
-        export TRTLLM_MOE_A2A_WORKSPACE_MB="2048"
-    fi
     cat << EOF >> $EXTRA_CONFIG_FILE
 attention_dp_config:
     enable_balance: true
@@ -87,19 +78,26 @@ mpirun -n 1 --oversubscribe --allow-run-as-root \
     --extra_llm_api_options=$EXTRA_CONFIG_FILE \
     > $SERVER_LOG 2>&1 &
 
-SERVER_PID=$!
 
-# Wait for server to be ready
-wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$SERVER_PID"
+# Show logs until server is ready
+tail -f $SERVER_LOG &
+TAIL_PID=$!
+set +x
+until curl --output /dev/null --silent --fail http://0.0.0.0:$PORT/health; do
+    sleep 5
+done
+kill $TAIL_PID
 
-run_benchmark_serving \
-    --model "$MODEL" \
-    --port "$PORT" \
-    --backend openai \
-    --input-len "$ISL" \
-    --output-len "$OSL" \
-    --random-range-ratio "$RANDOM_RANGE_RATIO" \
-    --num-prompts $(( $CONC * 10 )) \
-    --max-concurrency "$CONC" \
-    --result-filename "$RESULT_FILENAME" \
-    --result-dir /workspace/
+set -x
+BENCH_SERVING_DIR=$(mktemp -d /tmp/bmk-XXXXXX)
+git clone https://github.com/kimbochen/bench_serving.git $BENCH_SERVING_DIR
+python3 $BENCH_SERVING_DIR/benchmark_serving.py \
+--model $MODEL --backend openai \
+--base-url http://0.0.0.0:$PORT \
+--dataset-name random \
+--random-input-len $ISL --random-output-len $OSL --random-range-ratio $RANDOM_RANGE_RATIO \
+--num-prompts $(( $CONC * 10 )) --max-concurrency $CONC \
+--request-rate inf --ignore-eos \
+--save-result --percentile-metrics 'ttft,tpot,itl,e2el' \
+--result-dir /workspace/ \
+--result-filename $RESULT_FILENAME.json
