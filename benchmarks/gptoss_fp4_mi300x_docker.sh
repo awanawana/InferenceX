@@ -57,3 +57,8 @@ run_benchmark_serving \
     --max-concurrency "$CONC" \
     --result-filename "$RESULT_FILENAME" \
     --result-dir /workspace/
+
+# After throughput, run evaluation (defaults to GSM8K)
+run_lm_eval --port "$PORT"
+append_lm_eval_summary
+set +x
