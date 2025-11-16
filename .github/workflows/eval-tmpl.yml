@@ -83,10 +83,9 @@ jobs:
           # Helper to avoid indefinite hangs on flaky Docker daemons
           safe_timeout() { timeout -k 5 30s "$@"; }
 
-          if command -v docker >/dev/null 2>&1 && safe_timeout docker info >/dev/null 2>&1; then
-            host=$(hostname)
-
-            if [[ "$host" == "b200-81" || "$host" == "b200-80" || "$host" == "b200-79" ]]; then
+          host=$(hostname)
+          if [[ "$host" == "b200-81" || "$host" == "b200-80" || "$host" == "b200-79" ]]; then
+            if command -v docker >/dev/null 2>&1; then
               echo "[INFO] Running container-by-container cleanup on $host"
               cids=$(safe_timeout docker ps -aq || true)
               for cid in $cids; do
@@ -101,9 +100,10 @@ jobs:
                 nvidia-smi || true
               fi
             else
-              echo "[Docker] looking at docker resources ..."
-              safe_timeout docker ps -aq || echo "[WARN] docker ps timed out"
+              echo "[Docker] docker client not found; skipping cleanup"
             fi
+          else
+            echo "[Docker] skipping docker cleanup on host $host"
           fi
           sudo rm -rf /home/ubuntu/actions-runner/_work/InferenceMAX/InferenceMAX/eval_out/openai__gpt-oss-120b
           if command -v squeue >/dev/null 2>&1; then
