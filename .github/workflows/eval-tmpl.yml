@@ -101,6 +101,7 @@ jobs:
               docker ps -aq 
             fi
           fi
+          sudo rm -rf /home/ubuntu/actions-runner/_work/InferenceMAX/InferenceMAX/eval_out/openai__gpt-oss-120b
           if command -v squeue >/dev/null 2>&1; then
             echo "[Slurm] Cleaning up resources ..."
             scancel -u $USER || true
