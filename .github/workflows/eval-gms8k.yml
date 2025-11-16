@@ -45,9 +45,9 @@ jobs:
     with:
       runner: b200-nvd_2
       image: ${{ inputs.image || 'lmsysorg/sglang:v0.5.5-cu129-amd64' }}
-      model: ${{ inputs.model || 'nvidia/DeepSeek-R1-0528-FP4-V2' }}
+      model: ${{ inputs.model || 'deepseek-ai/DeepSeek-R1-0528' }}
       framework: sglang
-      precision: fp4
+      precision: fp8
       exp-name: dsr1_gsm8k_poc
       tp: '8'
       ep: '1'
