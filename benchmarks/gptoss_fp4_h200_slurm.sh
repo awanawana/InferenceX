@@ -41,12 +41,17 @@ EOF
 SERVER_LOG=$(mktemp /tmp/server-XXXXXX.log)
 export TORCH_CUDA_ARCH_LIST="9.0"
 PORT=$(( 8888 + $PORT_OFFSET ))
+MODEL_NAME=${MODEL##*/}
 
 export TORCH_CUDA_ARCH_LIST="9.0"
 
-PYTHONNOUSERSITE=1 vllm serve $MODEL --host 0.0.0.0 --port $PORT --config config.yaml \
- --gpu-memory-utilization 0.9 --tensor-parallel-size $TP --max-num-seqs $CONC  \
- --disable-log-requests > $SERVER_LOG 2>&1 &
+PYTHONNOUSERSITE=1 vllm serve $MODEL --host 0.0.0.0 --port $PORT \
+ --config config.yaml \
+ --gpu-memory-utilization 0.9 \
+ --tensor-parallel-size $TP \
+ --max-num-seqs $CONC  \
+ --disable-log-requests \
+ --served-model-name $MODEL_NAME > $SERVER_LOG 2>&1 &
 
 SERVER_PID=$!
 
@@ -57,7 +62,8 @@ source "$(dirname "$0")/benchmark_lib.sh"
 wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$SERVER_PID"
 
 run_benchmark_serving \
-    --model "$MODEL" \
+    --model "$MODEL_NAME" \
+    --tokenizer "$MODEL" \
     --port "$PORT" \
     --backend vllm \
     --input-len "$ISL" \
@@ -69,5 +75,7 @@ run_benchmark_serving \
     --result-dir /workspace/
 
 # After throughput, run evaluation (defaults to GSM8K)
-run_lm_eval --port "$PORT"
+run_eval --framework lm-eval --port "$PORT"
+run_eval --framework lighteval --task gsm8k --num-fewshot 5
 append_lm_eval_summary
+set +x
