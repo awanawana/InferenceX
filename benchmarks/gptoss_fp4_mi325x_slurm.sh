@@ -33,9 +33,8 @@ fi
 export VLLM_USE_AITER_UNIFIED_ATTENTION=1
 export VLLM_ROCM_USE_AITER_MHA=0
 export VLLM_ROCM_USE_AITER_TRITON_BF16_GEMM=0
+MODEL_NAME=${MODEL##*/}
 
-#
-## Start up vllm server
 set -x
 vllm serve $MODEL --port $PORT \
 --tensor-parallel-size=$TP \
@@ -46,8 +45,8 @@ vllm serve $MODEL --port $PORT \
 --block-size=64 \
 --no-enable-prefix-caching \
 --disable-log-requests \
---async-scheduling \
-> $SERVER_LOG 2>&1 &
+--served-model-name $MODEL_NAME \
+--async-scheduling > $SERVER_LOG 2>&1 &
 
 SERVER_PID=$!
 
@@ -58,7 +57,8 @@ source "$(dirname "$0")/benchmark_lib.sh"
 wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$SERVER_PID"
 
 run_benchmark_serving \
-    --model "$MODEL" \
+    --model "$MODEL_NAME" \
+    --tokenizer "$MODEL" \
     --port "$PORT" \
     --backend vllm \
     --input-len "$ISL" \
@@ -70,6 +70,7 @@ run_benchmark_serving \
     --result-dir /workspace/
 
 # After throughput, run evaluation (defaults to GSM8K)
-run_lm_eval --port "$PORT"
+run_eval --framework lm-eval --port "$PORT"
+run_eval --framework lighteval --task gsm8k --num-fewshot 5
 append_lm_eval_summary
 set +x
