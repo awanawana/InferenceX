@@ -3,6 +3,11 @@ name: Eval - GSM8K (PoC)
 on:
   workflow_dispatch:
     inputs:
+      exp-name:
+        description: "Experiment name (prefix selects docker script)"
+        required: false
+        type: string
+        default: "gptoss_gsm8k_poc"
       image:
         description: "Serving image"
         required: false
@@ -36,7 +41,7 @@ on:
   push:
     paths:
       - '.github/workflows/eval-gms8k.yml'
-      - '.github/workflows/eval-tmpl.yml'
+      - '.github/workflows/eval-tmpl.yml' 
 
 jobs:
   eval:
@@ -48,7 +53,7 @@ jobs:
       model: ${{ inputs.model || 'openai/gpt-oss-120b' }}
       framework: vllm
       precision: fp4
-      exp-name: dsr1_gsm8k_poc
+      exp-name: ${{ inputs.exp-name || 'gptoss_gsm8k_poc' }}
       tp: '8'
       ep: '1'
       dp-attn: false
@@ -56,4 +61,3 @@ jobs:
       eval-task: gsm8k
       num-fewshot: ${{ inputs.num_fewshot || '5' }}
       limit: ${{ inputs.limit || '200' }}
-

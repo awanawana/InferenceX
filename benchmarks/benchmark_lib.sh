@@ -274,7 +274,7 @@ run_lm_eval() {
       --num_fewshot "${num_fewshot}" \
       --batch_size "${batch_size}" \
       --output_path "/workspace/${results_dir}" \
-      --model_args "model=${MODEL},base_url=${openai_chat_base},api_key=${OPENAI_API_KEY},eos_string=</s>,max_retries=3,num_concurrent=32,tokenized_requests=False" \
+      --model_args "model=${MODEL_NAME},base_url=${openai_chat_base},api_key=${OPENAI_API_KEY},eos_string=</s>,max_retries=3,num_concurrent=32,tokenized_requests=False" \
       --gen_kwargs "max_tokens=${gen_max_tokens},temperature=${temperature},top_p=${top_p}"
     set +x
 }
@@ -488,9 +488,9 @@ run_lighteval_eval() {
     _patch_lighteval_litellm
 
     # Prefer OPENAI_MODEL_NAME, then EVAL_MODEL_NAME, then MODEL
-    local model_name="${EVAL_MODEL_NAME:-${OPENAI_MODEL_NAME:-${MODEL}}}"
+    local model_name="${MODEL_NAME}"
     if [[ -z "$model_name" ]]; then
-        echo "Error: EVAL_MODEL_NAME / OPENAI_MODEL_NAME / MODEL not set for lighteval." >&2
+        echo "Error: MODEL not set for lighteval." >&2
         return 1
     fi
 
