@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 
-# Shared benchmarking utilities for InferenceMAX
+# Shared benchmarking + evaluation utilities for InferenceMAX
+
+# ---------------------------------
+# Server readiness / benchmarks
+# ---------------------------------
 
 # Wait for server to be ready by polling the health endpoint
-# All parameters are required
 # Parameters:
-#   --port: Server port
-#   --server-log: Path to server log file
+#   --port: Server port (required)
+#   --server-log: Path to server log file (required)
 #   --server-pid: Server process ID (required)
 #   --sleep-interval: Sleep interval between health checks (optional, default: 5)
 wait_for_server_ready() {
@@ -16,73 +19,37 @@ wait_for_server_ready() {
     local server_pid=""
     local sleep_interval=5
 
-    # Parse arguments
     while [[ $# -gt 0 ]]; do
         case $1 in
-            --port)
-                port="$2"
-                shift 2
-                ;;
-            --server-log)
-                server_log="$2"
-                shift 2
-                ;;
-            --server-pid)
-                server_pid="$2"
-                shift 2
-                ;;
-            --sleep-interval)
-                sleep_interval="$2"
-                shift 2
-                ;;
-            *)
-                echo "Unknown parameter: $1"
-                return 1
-                ;;
+            --port)           port="$2"; shift 2 ;;
+            --server-log)     server_log="$2"; shift 2 ;;
+            --server-pid)     server_pid="$2"; shift 2 ;;
+            --sleep-interval) sleep_interval="$2"; shift 2 ;;
+            *)                echo "Unknown parameter: $1"; return 1 ;;
         esac
     done
 
-    # Validate required parameters
-    if [[ -z "$port" ]]; then
-        echo "Error: --port is required"
-        return 1
-    fi
-    if [[ -z "$server_log" ]]; then
-        echo "Error: --server-log is required"
-        return 1
-    fi
-    if [[ -z "$server_pid" ]]; then
-        echo "Error: --server-pid is required"
-        return 1
-    fi
+    if [[ -z "$port" ]]; then echo "Error: --port is required"; return 1; fi
+    if [[ -z "$server_log" ]]; then echo "Error: --server-log is required"; return 1; fi
+    if [[ -z "$server_pid" ]]; then echo "Error: --server-pid is required"; return 1; fi
 
     # Show logs until server is ready
     tail -f "$server_log" &
     local TAIL_PID=$!
-    until curl --output /dev/null --silent --fail http://0.0.0.0:$port/health; do
+    
+    until curl --output /dev/null --silent --fail "http://0.0.0.0:$port/health"; do
         if ! kill -0 "$server_pid" 2>/dev/null; then
             echo "Server died before becoming healthy. Exiting."
-            kill $TAIL_PID
+            kill "$TAIL_PID"
             exit 1
         fi
         sleep "$sleep_interval"
     done
-    kill $TAIL_PID
+    kill "$TAIL_PID"
 }
 
 # Run benchmark serving with standardized parameters
-# All parameters are required
-# Parameters:
-#   --model: Model name
-#   --port: Server port
-#   --backend: Backend type - 'vllm' or 'openai'
-#   --input-len: Random input sequence length
-#   --output-len: Random output sequence length
-#   --random-range-ratio: Random range ratio
-#   --num-prompts: Number of prompts
-#   --max-concurrency: Max concurrency
-#   --result-filename: Result filename without extension
-#   --result-dir: Result directory
+# All parameters are required unless otherwise noted
 run_benchmark_serving() {
     set +x
     local model=""
@@ -95,104 +62,43 @@ run_benchmark_serving() {
     local max_concurrency=""
     local result_filename=""
     local result_dir=""
+    local tokenizer=""
 
-    # Parse arguments
     while [[ $# -gt 0 ]]; do
         case $1 in
-            --model)
-                model="$2"
-                shift 2
-                ;;
-            --port)
-                port="$2"
-                shift 2
-                ;;
-            --backend)
-                backend="$2"
-                shift 2
-                ;;
-            --input-len)
-                input_len="$2"
-                shift 2
-                ;;
-            --output-len)
-                output_len="$2"
-                shift 2
-                ;;
-            --random-range-ratio)
-                random_range_ratio="$2"
-                shift 2
-                ;;
-            --num-prompts)
-                num_prompts="$2"
-                shift 2
-                ;;
-            --max-concurrency)
-                max_concurrency="$2"
-                shift 2
-                ;;
-            --result-filename)
-                result_filename="$2"
-                shift 2
-                ;;
-            --result-dir)
-                result_dir="$2"
-                shift 2
-                ;;
-            *)
-                echo "Unknown parameter: $1"
-                return 1
-                ;;
+            --model)              model="$2"; shift 2 ;;
+            --port)               port="$2"; shift 2 ;;
+            --backend)            backend="$2"; shift 2 ;;
+            --input-len)          input_len="$2"; shift 2 ;;
+            --output-len)         output_len="$2"; shift 2 ;;
+            --random-range-ratio) random_range_ratio="$2"; shift 2 ;;
+            --num-prompts)        num_prompts="$2"; shift 2 ;;
+            --max-concurrency)    max_concurrency="$2"; shift 2 ;;
+            --result-filename)    result_filename="$2"; shift 2 ;;
+            --result-dir)         result_dir="$2"; shift 2 ;;
+            --tokenizer)          tokenizer="$2"; shift 2 ;;
+            *)                    echo "Unknown parameter: $1"; return 1 ;;
         esac
     done
 
-    # Validate all required parameters
-    if [[ -z "$model" ]]; then
-        echo "Error: --model is required"
-        return 1
-    fi
-    if [[ -z "$port" ]]; then
-        echo "Error: --port is required"
-        return 1
-    fi
-    if [[ -z "$backend" ]]; then
-        echo "Error: --backend is required"
-        return 1
-    fi
-    if [[ -z "$input_len" ]]; then
-        echo "Error: --input-len is required"
-        return 1
-    fi
-    if [[ -z "$output_len" ]]; then
-        echo "Error: --output-len is required"
-        return 1
-    fi
-    if [[ -z "$random_range_ratio" ]]; then
-        echo "Error: --random-range-ratio is required"
-        return 1
-    fi
-    if [[ -z "$num_prompts" ]]; then
-        echo "Error: --num-prompts is required"
-        return 1
-    fi
-    if [[ -z "$max_concurrency" ]]; then
-        echo "Error: --max-concurrency is required"
-        return 1
-    fi
-    if [[ -z "$result_filename" ]]; then
-        echo "Error: --result-filename is required"
-        return 1
-    fi
-    if [[ -z "$result_dir" ]]; then
-        echo "Error: --result-dir is required"
-        return 1
-    fi
+    # Validation
+    local vars=(model port backend input_len output_len random_range_ratio num_prompts max_concurrency result_filename result_dir)
+    for var in "${vars[@]}"; do
+        if [[ -z "${!var}" ]]; then
+            echo "Error: --${var//_/-} is required"
+            return 1
+        fi
+    done
 
-    # Clone benchmark serving repo
-    local BENCH_SERVING_DIR=$(mktemp -d /tmp/bmk-XXXXXX)
+    local BENCH_SERVING_DIR
+    BENCH_SERVING_DIR=$(mktemp -d /tmp/bmk-XXXXXX)
     git clone https://github.com/kimbochen/bench_serving.git "$BENCH_SERVING_DIR"
 
-    # Run benchmark
+    local extra_tokenizer_args=()
+    if [[ -n "$tokenizer" ]]; then
+        extra_tokenizer_args=(--tokenizer "$tokenizer")
+    fi
+
     set -x
     python3 "$BENCH_SERVING_DIR/benchmark_serving.py" \
         --model "$model" \
@@ -204,6 +110,7 @@ run_benchmark_serving() {
         --random-range-ratio "$random_range_ratio" \
         --num-prompts "$num_prompts" \
         --max-concurrency "$max_concurrency" \
+        "${extra_tokenizer_args[@]}" \
         --request-rate inf \
         --ignore-eos \
         --save-result \
@@ -218,7 +125,6 @@ run_benchmark_serving() {
 # Eval (lm-eval-harness) helpers
 # ------------------------------
 
-# Install or update lm-eval dependencies
 _install_lm_eval_deps() {
     set +x
     python3 -m pip install -q --no-cache-dir "lm-eval[api]" || true
@@ -239,11 +145,11 @@ from lm_eval.filters import extraction as ex
 def _s(x):  # coerce to str
     return x if isinstance(x, str) else ""
 
-# --- Patch RegexFilter.apply (used by many datasets) ---
+# --- Patch RegexFilter.apply ---
 _orig_regex_apply = ex.RegexFilter.apply
 def _safe_regex_apply(self, resps, docs):
     out = []
-    for inst in resps:  # inst is a list of candidate responses for one doc
+    for inst in resps:
         filtered = []
         for resp in inst:
             txt = _s(resp)
@@ -261,7 +167,7 @@ def _safe_regex_apply(self, resps, docs):
     return out
 ex.RegexFilter.apply = _safe_regex_apply
 
-# --- Patch MultiChoiceRegexFilter.apply (used by GSM8K flexible-extract) ---
+# --- Patch MultiChoiceRegexFilter.apply ---
 _orig_mc_apply = ex.MultiChoiceRegexFilter.apply
 def _safe_mc_apply(self, resps, docs):
     def find_match(regex, resp, convert_dict={}):
@@ -298,7 +204,6 @@ def _safe_mc_apply(self, resps, docs):
 
     out = []
     for r, doc in zip(resps, docs):
-        # Build fallback regexes from choices (A, B, C, ...) as in upstream
         fallback_regexes, choice_to_alpha = [], {}
         next_alpha = "A"
         without_paren, without_paren_to_target = [], {}
@@ -331,16 +236,6 @@ PY
     export PYTHONPATH="${patch_dir}:${PYTHONPATH:-}"
 }
 
-# Run an lm-eval-harness task against a local OpenAI-compatible server
-# Parameters:
-#   --port:              Server port (default: $PORT or 8888)
-#   --task:              Eval task (default: $EVAL_TASK or gsm8k)
-#   --num-fewshot:       Fewshot k (default: $NUM_FEWSHOT or 5)
-#   --results-dir:       Output dir (default: $EVAL_RESULT_DIR or eval_out)
-#   --batch-size:        Harness batch size (default: 2)
-#   --gen-max-tokens:    Max tokens for generation (default: 8192)
-#   --temperature:       Temperature (default: 0)
-#   --top-p:             Top-p (default: 1)
 run_lm_eval() {
     set +x
     local port="${PORT:-8888}"
@@ -352,35 +247,25 @@ run_lm_eval() {
     local temperature=0
     local top_p=1
 
-    # Parse arguments
     while [[ $# -gt 0 ]]; do
         case $1 in
-            --port)
-                port="$2"; shift 2;;
-            --task)
-                task="$2"; shift 2;;
-            --num-fewshot)
-                num_fewshot="$2"; shift 2;;
-            --results-dir)
-                results_dir="$2"; shift 2;;
-            --batch-size)
-                batch_size="$2"; shift 2;;
-            --gen-max-tokens)
-                gen_max_tokens="$2"; shift 2;;
-            --temperature)
-                temperature="$2"; shift 2;;
-            --top-p)
-                top_p="$2"; shift 2;;
-            *)
-                echo "Unknown parameter: $1"; return 1;;
+            --port)           port="$2"; shift 2 ;;
+            --task)           task="$2"; shift 2 ;;
+            --num-fewshot)    num_fewshot="$2"; shift 2 ;;
+            --results-dir)    results_dir="$2"; shift 2 ;;
+            --batch-size)     batch_size="$2"; shift 2 ;;
+            --gen-max-tokens) gen_max_tokens="$2"; shift 2 ;;
+            --temperature)    temperature="$2"; shift 2 ;;
+            --top-p)          top_p="$2"; shift 2 ;;
+            *)                echo "Unknown parameter: $1"; return 1 ;;
         esac
     done
- 
+
     _install_lm_eval_deps
     _patch_lm_eval_filters
 
     local openai_server_base="http://0.0.0.0:${port}"
-    local openai_chat_base="$openai_server_base/v1/chat/completions"
+    local openai_chat_base="${openai_server_base}/v1/chat/completions"
     export OPENAI_API_KEY=${OPENAI_API_KEY:-EMPTY}
 
     set -x
@@ -394,7 +279,6 @@ run_lm_eval() {
     set +x
 }
 
-# Append a Markdown summary to GitHub step summary (no-op if not in GH Actions)
 append_lm_eval_summary() {
     set +x
     local results_dir="${EVAL_RESULT_DIR:-eval_out}"
@@ -410,4 +294,248 @@ append_lm_eval_summary() {
             --dp-attention "${DP_ATTENTION:-false}" \
             >> "$GITHUB_STEP_SUMMARY" || true
     fi
+}
+
+
+# ------------------------------
+# Lighteval + LiteLLM patching
+# ------------------------------
+
+_install_lighteval_deps() {
+    set +x
+    python3 -m pip install -q --no-cache-dir "lighteval[api]" "litellm" || true
+}
+
+# Patch lighteval's LiteLLMClient to handle reasoning content and Python name mangling
+_patch_lighteval_litellm() {
+    set +x
+    local patch_dir
+    patch_dir="$(mktemp -d)"
+    cat > "$patch_dir/sitecustomize.py" <<'PY'
+import logging
+import time
+
+import litellm
+from tqdm import tqdm
+
+litellm.suppress_debug_info = True
+
+from lighteval.models.endpoints.litellm_model import LiteLLMClient
+from lighteval.data import GenerativeTaskDataset
+from lighteval.tasks.requests import Doc, SamplingMethod
+from lighteval.models.model_output import ModelResponse
+from lighteval.utils.cache_management import cached
+
+logger = logging.getLogger(__name__)
+
+# --- Patched __call_api: don't retry when we have reasoning_content ---
+def _patched___call_api(self, prompt, return_logits, max_new_tokens, num_samples, stop_sequence):  # noqa: C901
+    """Make API call with retries, but don't treat reasoning-only responses as empty."""
+    from lighteval.models.endpoints.litellm_model import LitellmModelResponse
+
+    response = LitellmModelResponse()
+    stop_sequence = self._prepare_stop_sequence(stop_sequence)
+    max_new_tokens = self._prepare_max_new_tokens(max_new_tokens)
+
+    if return_logits and not self.provider == "openai":
+        logger.warning("Returning logits is not supported for this provider, ignoring.")
+
+    kwargs = {
+        "model": self.model,
+        "messages": prompt,
+        "response_format": {"type": "text"},
+        "max_tokens": max_new_tokens,
+        "logprobs": return_logits if self.provider == "openai" else None,
+        "stop": stop_sequence,
+        "base_url": self.base_url,
+        "api_key": self.api_key,
+        "n": num_samples,
+        "caching": True,
+        "timeout": self.timeout,
+    }
+
+    if "o1" in self.model:
+        logger.warning("O1 models do not support temperature, top_p, stop sequence. Disabling.")
+    else:
+        kwargs.update(self.generation_parameters.to_litellm_dict())
+
+    if kwargs.get("max_completion_tokens", None) is None:
+        kwargs["max_completion_tokens"] = max_new_tokens
+
+    for attempt in range(self.API_MAX_RETRY):
+        try:
+            response = litellm.completion(**kwargs)
+            msg = response.choices[0].message
+            content = msg.content
+            reasoning = getattr(msg, "reasoning_content", None)
+
+            if (not content) and reasoning:
+                return response
+
+            if not content:
+                logger.info("Response is empty, retrying without caching")
+                kwargs["caching"] = False
+                response = litellm.completion(**kwargs)
+                msg = response.choices[0].message
+                content = msg.content
+                reasoning = getattr(msg, "reasoning_content", None)
+
+            return response
+        except litellm.BadRequestError as e:
+            if "message" in e.__dict__ and "policy" in e.__dict__["message"]:
+                logger.warning(f"Content filtered. Returning empty response.")
+                return LitellmModelResponse()
+        except Exception as e:
+            wait_time = min(64, self.API_RETRY_SLEEP * (self.API_RETRY_MULTIPLIER**attempt))
+            logger.warning(f"Error: {e}, waiting {wait_time}s before retry {attempt + 1}/{self.API_MAX_RETRY}")
+            time.sleep(wait_time)
+
+    logger.error(f"API call failed after {self.API_MAX_RETRY} attempts.")
+    return LitellmModelResponse()
+
+# APPLY PATCH: Must use mangled name because original was private (__call_api)
+LiteLLMClient._LiteLLMClient__call_api = _patched___call_api
+
+# --- Patched greedy_until: merge reasoning + content, preserve ordering ---
+def _greedy_until_impl(self, docs: list[Doc]) -> list[ModelResponse]:
+    dataset = GenerativeTaskDataset(requests=docs, num_dataset_splits=self.DATASET_SPLITS)
+    results: list[ModelResponse] = []
+
+    for split in tqdm(
+        dataset.splits_iterator(),
+        total=dataset.num_dataset_splits,
+        desc="Splits",
+        position=0,
+        disable=self.disable_tqdm,
+    ):
+        contexts = [self.prompt_manager.prepare_prompt_api(doc) for doc in dataset]
+
+        max_new_tokens = split[0].generation_size
+        return_logits = split[0].use_logits
+        num_samples = split[0].num_samples
+        stop_sequence = split[0].stop_sequences
+
+        if num_samples > 1 and self.generation_parameters.temperature == 0:
+            raise ValueError("num_samples > 1 requires temperature > 0")
+
+        # CRITICAL FIX: Access the private method via mangled name
+        responses = self._LiteLLMClient__call_api_parallel(
+            contexts,
+            return_logits,
+            max_new_tokens,
+            num_samples,
+            stop_sequence,
+        )
+
+        for response, context in zip(responses, contexts):
+            raw_contents = [(choice.message.content or "").strip() for choice in response.choices]
+            raw_reasonings = [(getattr(choice.message, "reasoning_content", None) or "").strip() for choice in response.choices]
+
+            merged: list[str] = []
+            for c, r in zip(raw_contents, raw_reasonings):
+                if c and r:
+                    merged.append(r + "\n\n" + c)
+                elif c:
+                    merged.append(c)
+                elif r:
+                    merged.append(r)
+                else:
+                    merged.append("")
+
+            reasonings: list[str | None] = [r if r != "" else None for r in raw_reasonings]
+
+            if not merged or merged[0] is None:
+                merged = [""]
+
+            cur_response = ModelResponse(
+                text=merged,
+                reasonings=reasonings,
+                input=context,
+            )
+            results.append(cur_response)
+
+    if len(results) != len(dataset):
+        raise RuntimeError(f"Internal mismatch: {len(results)} outputs vs {len(dataset)} docs.")
+
+    return dataset.get_original_order(results)
+
+# Re-apply caching decorator
+LiteLLMClient.greedy_until = cached(SamplingMethod.GENERATIVE)(_greedy_until_impl)
+PY
+    export PYTHONPATH="${patch_dir}:${PYTHONPATH:-}"
+}
+
+run_lighteval_eval() {
+    set +x
+    local port="${PORT:-8888}"
+    local task="${EVAL_TASK:-gsm8k}"
+    local num_fewshot="${NUM_FEWSHOT:-5}"
+    local results_dir="${EVAL_RESULT_DIR:-eval_out_lighteval}"
+    local max_samples=0
+
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --port)        port="$2"; shift 2 ;;
+            --task)        task="$2"; shift 2 ;;
+            --num-fewshot) num_fewshot="$2"; shift 2 ;;
+            --results-dir) results_dir="$2"; shift 2 ;;
+            --max-samples) max_samples="$2"; shift 2 ;;
+            *)             echo "Unknown parameter: $1"; return 1 ;;
+        esac
+    done
+
+    _install_lighteval_deps
+    _patch_lighteval_litellm
+
+    # Prefer OPENAI_MODEL_NAME, then EVAL_MODEL_NAME, then MODEL
+    local model_name="${EVAL_MODEL_NAME:-${OPENAI_MODEL_NAME:-${MODEL}}}"
+    if [[ -z "$model_name" ]]; then
+        echo "Error: EVAL_MODEL_NAME / OPENAI_MODEL_NAME / MODEL not set for lighteval." >&2
+        return 1
+    fi
+
+    # LiteLLM provider prefix logic
+    local lite_model="$model_name"
+    if [[ "$lite_model" != openai/* ]]; then
+        lite_model="openai/${lite_model}"
+    fi
+
+    local base_url="http://0.0.0.0:${port}/v1"
+    export OPENAI_API_KEY="${OPENAI_API_KEY:-EMPTY}"
+
+    local MODEL_ARGS="model_name=${lite_model},base_url=${base_url},api_key=${OPENAI_API_KEY}"
+    local TASK_SPEC="${task}|${num_fewshot}"
+
+    set -x
+    lighteval endpoint litellm \
+        "${MODEL_ARGS}" \
+        "${TASK_SPEC}" \
+        --output-dir "/workspace/${results_dir}" \
+        --max-samples "${max_samples}" \
+        --remove-reasoning-tags
+    set +x
+}
+
+
+# ------------------------------
+# Unified eval entrypoint
+# ------------------------------
+
+run_eval() {
+    set +x
+    local framework="${EVAL_FRAMEWORK:-lm-eval}"
+    local forwarded=()
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --framework) framework="$2"; shift 2 ;;
+            *)           forwarded+=("$1"); shift ;;
+        esac
+    done
+
+    case "$framework" in
+        lm-eval|lm_eval) run_lm_eval "${forwarded[@]}" ;;
+        lighteval)       run_lighteval_eval "${forwarded[@]}" ;;
+        *)               echo "Unknown framework '${framework}'"; return 1 ;;
+    esac
 }
