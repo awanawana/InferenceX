@@ -540,7 +540,7 @@ run_eval() {
 
     # Defensive cleanup: remove any LiteLLM cache in the repo workspace so
     # subsequent steps (e.g., actions/checkout) won't hit permission issues.
-    rm -rf .litellm_cache 2>/dev/null || true
+    #rm -rf .litellm_cache 2>/dev/null || true
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -556,5 +556,5 @@ run_eval() {
     esac
 
     # Clean up again after eval, in case the tool recreated it.
-    rm -rf .litellm_cache 2>/dev/null || true
+    #rm -rf .litellm_cache 2>/dev/null || true
 }
