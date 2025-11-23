@@ -552,3 +552,54 @@ run_eval() {
     esac
 
 }
+
+# ...existing code...
+
+# ------------------------------
+# Cleanup utilities
+# ------------------------------
+
+# Clean up evaluation and cache artifacts
+# This function should be called at the end of benchmark/eval scripts
+cleanup_eval_artifacts() {
+    set +x
+    echo "[Cleanup] Removing evaluation artifacts and cache directories..."
+    
+    # Clean up litellm cache
+    if [ -d "/workspace/.litellm_cache" ]; then
+        rm -rf /workspace/.litellm_cache || true
+        echo "[Cleanup] Removed .litellm_cache"
+    fi
+    
+    # Clean up eval output directories
+    for dir in /workspace/eval_out* /workspace/.cache; do
+        if [ -d "$dir" ]; then
+            rm -rf "$dir" || true
+            echo "[Cleanup] Removed $dir"
+        fi
+    done
+    
+    # Clean up temporary benchmark directories
+    if [ -n "${BENCH_SERVING_DIR:-}" ] && [ -d "$BENCH_SERVING_DIR" ]; then
+        rm -rf "$BENCH_SERVING_DIR" || true
+        echo "[Cleanup] Removed benchmark serving temp dir"
+    fi
+    
+    # Clean up Python cache
+    find /workspace -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+    find /workspace -type f -name "*.pyc" -delete 2>/dev/null || true
+    
+    # Fix permissions for any remaining files (in case cleanup is run without sudo)
+    chmod -R 777 /workspace/.litellm_cache 2>/dev/null || true
+    chmod -R 777 /workspace/eval_out* 2>/dev/null || true
+    
+    echo "[Cleanup] Artifact cleanup complete"
+    set -x
+}
+
+# Trap to ensure cleanup runs even if script fails
+# Call this at the start of your benchmark scripts:
+# trap cleanup_eval_artifacts EXIT
+setup_cleanup_trap() {
+    trap cleanup_eval_artifacts EXIT INT TERM
+}
