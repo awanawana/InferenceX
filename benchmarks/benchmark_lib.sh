@@ -523,7 +523,6 @@ run_lighteval_eval() {
         "${MODEL_ARGS}" \
         "${TASK_SPEC}" \
         --output-dir "/workspace/${results_dir}" \
-        --use-chat-template \
         --max-samples "${max_samples}" \
         --remove-reasoning-tags
     set +x
