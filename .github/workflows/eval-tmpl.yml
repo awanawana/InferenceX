@@ -87,9 +87,6 @@ jobs:
               "$@"
             fi
           }
-          set -x
-          sudo rm -rfv ${GITHUB_WORKSPACE}/* || true
-          set +x
           host=$(hostname)
           if [[ "$host" == "b200-81" || "$host" == "b200-80" || "$host" == "b200-79" ]]; then
             if command -v docker >/dev/null 2>&1; then
@@ -133,6 +130,9 @@ jobs:
               echo "[Slurm] Jobs still present after timeout; proceeding"
             fi
           fi
+          set -x
+          sudo rm -rfv ${GITHUB_WORKSPACE}/* || true
+          set +x
 
       - uses: actions/checkout@v5
         with:
