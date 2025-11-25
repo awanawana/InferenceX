@@ -162,5 +162,4 @@ jobs:
           sudo rm -rf \
             "${{ github.workspace }}/.litellm_cache" \
             "${{ github.workspace }}/eval_out"* \
-            "${{ github.workspace }}/.cache" \
             || true
