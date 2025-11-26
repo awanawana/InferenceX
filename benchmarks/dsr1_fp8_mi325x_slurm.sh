@@ -44,5 +44,8 @@ run_benchmark_serving \
     --result-dir /workspace/
 
 # After throughput, run evaluation (defaults to GSM8K)
-run_lm_eval --port "$PORT"
+#run_lm_eval --port "$PORT"
+MODEL_NAME="openai/$MODEL"
+run_eval --framework lighteval --task gsm8k --num-fewshot 5
 append_lm_eval_summary
+set +x

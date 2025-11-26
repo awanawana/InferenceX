@@ -100,7 +100,6 @@ run_benchmark_serving() {
     fi
 
     set -x
-    echo "Before benchmark_serving: $(id -u) $(id -g) $(id -un)" >&2
     python3 "$BENCH_SERVING_DIR/benchmark_serving.py" \
         --model "$model" \
         --backend "$backend" \
@@ -270,7 +269,6 @@ run_lm_eval() {
     export OPENAI_API_KEY=${OPENAI_API_KEY:-EMPTY}
 
     set -x
-    echo "Before lm_eval: $(id -u) $(id -g) $(id -un)" >&2
     python3 -m lm_eval --model local-chat-completions --apply_chat_template \
       --tasks "${task}" \
       --num_fewshot "${num_fewshot}" \
@@ -329,27 +327,46 @@ _patch_lighteval_litellm() {
     patch_dir="$(mktemp -d)"
     cat > "$patch_dir/sitecustomize.py" <<'PY'
 import logging
+import os
 import time
+import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import litellm
 from tqdm import tqdm
 
 litellm.suppress_debug_info = True
+litellm.drop_params = True
+
+# Remove sglang import that crashes
+try:
+    # This is where lighteval's is_package_available lives
+    from lighteval.utils import imports as le_imports
+except Exception:
+    le_imports = None
+else:
+    _orig_is_package_available = le_imports.is_package_available
+
+    def _patched_is_package_available(pkg: str) -> bool:
+        # Force "sglang" to look unavailable so that
+        # lighteval.models.sglang.sglang_model never imports `sglang`
+        if pkg == "sglang":
+            return False
+        return _orig_is_package_available(pkg)
+
+    le_imports.is_package_available = _patched_is_package_available
 
 from lighteval.models.endpoints.litellm_model import LiteLLMClient
 from lighteval.data import GenerativeTaskDataset
-from lighteval.tasks.requests import Doc, SamplingMethod
+from lighteval.tasks.requests import Doc
 from lighteval.models.model_output import ModelResponse
-from lighteval.utils.cache_management import cached
 
 logger = logging.getLogger(__name__)
 
-# --- Patched __call_api: don't retry when we have reasoning_content, enforce chat template on vLLM and avoid stop interference ---
-def _patched___call_api(self, prompt, return_logits, max_new_tokens, num_samples, stop_sequence):  # noqa: C901
+def _patched___call_api(self, prompt, return_logits, max_new_tokens, num_samples, stop_sequence):  # noqa: C901, N802
     from lighteval.models.endpoints.litellm_model import LitellmModelResponse
     response = LitellmModelResponse()
-
-    stop_sequence = None  # Important: let the chat template drive turn-taking
+    # Keep dataset-provided stop sequences to cut early
     max_new_tokens = self._prepare_max_new_tokens(max_new_tokens)
 
     if return_logits and not self.provider == "openai":
@@ -360,17 +377,21 @@ def _patched___call_api(self, prompt, return_logits, max_new_tokens, num_samples
         "messages": prompt,
         "max_tokens": max_new_tokens,
         "logprobs": return_logits if self.provider == "openai" else None,
-        "stop": stop_sequence,  # disabled for chat
+        "stop": stop_sequence,
         "base_url": self.base_url,
         "api_key": self.api_key,
         "n": num_samples,
-        "caching": True,
         "timeout": self.timeout,
-        # vLLM OpenAI server: ensure chat template is applied and an assistant turn is started
-        "extra_body": {
-            "use_chat_template": True
-        },
     }
+
+    # vLLM/SGLang OpenAI servers: apply chat template and start assistant turn
+    if (
+        self.provider == "openai"
+        and isinstance(self.base_url, str)
+        and self.base_url
+        and ("api.openai.com" not in self.base_url)
+    ):
+        kwargs["extra_body"] = {"use_chat_template": True, "add_generation_prompt": True}
 
     if "o1" in self.model:
         logger.warning("O1 models do not support temperature, top_p, stop sequence. Disabling.")
@@ -384,15 +405,15 @@ def _patched___call_api(self, prompt, return_logits, max_new_tokens, num_samples
         try:
             response = litellm.completion(**kwargs)
             msg = response.choices[0].message
-            content = msg.content
+            content = getattr(msg, "content", None)
             reasoning = getattr(msg, "reasoning_content", None)
 
             # Accept reasoning-only replies
             if (not content) and reasoning:
                 return response
 
-            if not content:
-                logger.info("Response is empty, retrying without caching")
+            if not content and LITELLM_CACHE:
+                logger.info("Empty content with caching on; retrying uncached once")
                 kwargs["caching"] = False
                 response = litellm.completion(**kwargs)
 
@@ -409,8 +430,49 @@ def _patched___call_api(self, prompt, return_logits, max_new_tokens, num_samples
     logger.error(f"API call failed after {self.API_MAX_RETRY} attempts.")
     return LitellmModelResponse()
 
-# APPLY PATCH
-LiteLLMClient._LiteLLMClient__call_api = _patched___call_api
+
+def _patched___call_api_parallel(self, prompts, return_logits, max_new_tokens, num_samples, stop_sequence):  # noqa: N802
+    # Build per-item args
+    return_logitss = [return_logits for _ in prompts] if not isinstance(return_logits, list) else return_logits
+    max_new_tokenss = [max_new_tokens for _ in prompts] if not isinstance(max_new_tokens, list) else max_new_tokens
+    num_sampless = [num_samples for _ in prompts] if not isinstance(num_samples, list) else num_samples
+    stop_sequencess = [stop_sequence for _ in prompts]
+
+    n = len(prompts)
+    assert n == len(return_logitss) == len(max_new_tokenss) == len(num_sampless) == len(stop_sequencess), (
+        f"Length mismatch: {len(prompts)}, {len(return_logitss)}, {len(max_new_tokenss)}, "
+        f"{len(num_sampless)}, {len(stop_sequencess)}"
+    )
+
+    results = [None] * n
+    with ThreadPoolExecutor(self.concurrent_requests) as executor:
+        futures = []
+        for idx in range(n):
+            fut = executor.submit(
+                self._LiteLLMClient__call_api,
+                prompts[idx],
+                return_logitss[idx],
+                max_new_tokenss[idx],
+                num_sampless[idx],
+                stop_sequencess[idx],
+            )
+            fut._le_idx = idx  # attach index for order restoration
+            futures.append(fut)
+
+        for fut in tqdm(as_completed(futures), total=n, disable=self.disable_tqdm):
+            idx = getattr(fut, "_le_idx", None)
+            try:
+                res = fut.result()
+            except Exception:
+                res = None
+            if idx is not None:
+                results[idx] = res
+
+    if any(r is None for r in results):
+        raise ValueError("Some entries are not annotated due to errors in __call_api_parallel, please inspect and retry.")
+
+    return results
+
 
 def _greedy_until_impl(self, docs: list[Doc]) -> list[ModelResponse]:
     dataset = GenerativeTaskDataset(requests=docs, num_dataset_splits=self.DATASET_SPLITS)
@@ -423,7 +485,6 @@ def _greedy_until_impl(self, docs: list[Doc]) -> list[ModelResponse]:
         position=0,
         disable=self.disable_tqdm,
     ):
-        # FIX: only build contexts for the current split
         contexts = [self.prompt_manager.prepare_prompt_api(doc) for doc in split]
 
         max_new_tokens = split[0].generation_size
@@ -443,22 +504,18 @@ def _greedy_until_impl(self, docs: list[Doc]) -> list[ModelResponse]:
         )
 
         for response, context in zip(responses, contexts):
-            raw_contents = [(choice.message.content or "").strip() for choice in response.choices]
-            raw_reasonings = [(getattr(choice.message, "reasoning_content", None) or "").strip() for choice in response.choices]
-
             merged_texts: list[str] = []
             reasonings: list[str | None] = []
 
-            for c, r in zip(raw_contents, raw_reasonings):
-                if c and r:
-                    merged_texts.append(f"<think>{r}</think>\n\n{c}")
-                elif c:
-                    merged_texts.append(c)
-                elif r:
-                    merged_texts.append(f"<think>{r}</think>")
-                else:
-                    merged_texts.append("")
-                reasonings.append(r if r != "" else None)
+            for choice in response.choices:
+                msg = choice.message
+                raw_content = getattr(msg, "content", None) or ""
+                reasoning = getattr(msg, "reasoning_content", None)
+
+                # For answer extraction, use only the content field
+                # The reasoning is stored separately for logging/debugging
+                merged_texts.append(raw_content.strip() if raw_content else "")
+                reasonings.append(reasoning if reasoning else None)
 
             if not merged_texts or merged_texts[0] is None:
                 merged_texts = [""]
@@ -476,10 +533,10 @@ def _greedy_until_impl(self, docs: list[Doc]) -> list[ModelResponse]:
 
     return dataset.get_original_order(results)
 
-# Disable lighteval on-disk caching to avoid filesystem issues with task names
-# like "gsm8k|5" becoming part of cache paths on certain filesystems.
-# We directly bind the greedy method without the caching decorator.
-LiteLLMClient.greedy_until = _greedy_until_impl
+# Bind patches
+LiteLLMClient._LiteLLMClient__call_api = _patched___call_api
+LiteLLMClient._LiteLLMClient__call_api_parallel = _patched___call_api_parallel
+#LiteLLMClient.greedy_until = _greedy_until_impl
 PY
     export PYTHONPATH="${patch_dir}:${PYTHONPATH:-}"
 }
@@ -522,11 +579,11 @@ run_lighteval_eval() {
     local base_url="http://0.0.0.0:${port}/v1"
     export OPENAI_API_KEY="${OPENAI_API_KEY:-EMPTY}"
 
-    local MODEL_ARGS="model_name=${lite_model},base_url=${base_url},api_key=${OPENAI_API_KEY},generation_parameters={temperature:0.0,max_new_tokens:2056}"
+
+    local MODEL_ARGS="model_name=${lite_model},base_url=${base_url},api_key=${OPENAI_API_KEY},generation_parameters={temperature:0.0,max_new_tokens:2048},concurrent_requests=8"
     local TASK_SPEC="${task}|${num_fewshot}"
 
     set -x
-    echo "Before lighteval: $(id -u) $(id -g) $(id -un)" >&2
     lighteval endpoint litellm \
         "${MODEL_ARGS}" \
         "${TASK_SPEC}" \

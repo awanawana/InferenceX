@@ -66,3 +66,8 @@ run_benchmark_serving \
     --max-concurrency "$CONC" \
     --result-filename "$RESULT_FILENAME" \
     --result-dir /workspace/
+
+MODEL_NAME="openai/$MODEL"
+run_eval --framework lighteval --task gsm8k --num-fewshot 5
+append_lm_eval_summary
+set +x
