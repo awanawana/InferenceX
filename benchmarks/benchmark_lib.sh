@@ -265,7 +265,6 @@ run_lm_eval() {
     local task="${EVAL_TASK:-gsm8k}"
     local num_fewshot="${NUM_FEWSHOT:-5}"
     local results_dir="${EVAL_RESULT_DIR:-eval_out}"
-    local batch_size=3
     local gen_max_tokens=4096
     local temperature=0
     local top_p=1
@@ -277,7 +276,6 @@ run_lm_eval() {
             --task)           task="$2"; shift 2 ;;
             --num-fewshot)    num_fewshot="$2"; shift 2 ;;
             --results-dir)    results_dir="$2"; shift 2 ;;
-            --batch-size)     batch_size="$2"; shift 2 ;;
             --gen-max-tokens) gen_max_tokens="$2"; shift 2 ;;
             --temperature)    temperature="$2"; shift 2 ;;
             --top-p)          top_p="$2"; shift 2 ;;
@@ -295,11 +293,10 @@ run_lm_eval() {
 
     set -x
     python3 -m lm_eval --model local-chat-completions --apply_chat_template \
-      --tasks "${task}" \
+      --tasks "utils/evals/${task}.yaml" \
       --num_fewshot "${num_fewshot}" \
-      --batch_size "${batch_size}" \
       --output_path "/workspace/${results_dir}" \
-      --model_args "model=${MODEL_NAME},base_url=${openai_chat_base},api_key=${OPENAI_API_KEY},eos_string=</s>,max_retries=3,num_concurrent=${concurrent_requests},tokenized_requests=False" \
+      --model_args "model=${MODEL_NAME},base_url=${openai_chat_base},api_key=${OPENAI_API_KEY},eos_string=</s>,max_retries=2,num_concurrent=${concurrent_requests},tokenized_requests=False" \
       --gen_kwargs "max_tokens=${gen_max_tokens},temperature=${temperature},top_p=${top_p}"
     set +x
 }
@@ -606,8 +603,7 @@ run_lighteval_eval() {
     local base_url="http://0.0.0.0:${port}/v1"
     export OPENAI_API_KEY="${OPENAI_API_KEY:-EMPTY}"
 
-
-    local MODEL_ARGS="model_name=${lite_model},base_url=${base_url},api_key=${OPENAI_API_KEY},generation_parameters={temperature:0.0,max_new_tokens:2048},concurrent_requests=${concurrent_requests}"
+    local MODEL_ARGS="model_name=${lite_model},base_url=${base_url},api_key=${OPENAI_API_KEY},generation_parameters={temperature:0.0,top_p=1,max_new_tokens:2048},concurrent_requests=${concurrent_requests}"
     local TASK_SPEC="${task}|${num_fewshot}"
 
     set -x
