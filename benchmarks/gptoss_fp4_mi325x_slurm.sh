@@ -70,7 +70,6 @@ run_benchmark_serving \
     --result-dir /workspace/
 
 # After throughput, run evaluation (defaults to GSM8K)
-MODEL_NAME="$MODEL"
 run_eval --framework lm-eval --port "$PORT" --concurrent-requests $(( $CONC * 2 ))
 #run_eval --framework lighteval --task gsm8k --num-fewshot 5
 append_lm_eval_summary

@@ -55,7 +55,7 @@ jobs:
       framework: vllm
       precision: fp4
       exp-name: ${{ inputs.exp-name || 'gptoss_gsm8k_poc' }}
-      tp: '4'
+      tp: '2'
       ep: '1'
       dp-attn: false
       port: ${{ inputs.port || '8888' }}
