@@ -1,12 +1,9 @@
 name: Drain b200-nvd_2
 
 on:
-  workflow_dispatch:
-    inputs:
-      minutes:
-        description: Minutes to hold (defaults to 72h if empty)
-        required: false
-        default: ""
+  push:
+    paths:
+      - '.github/workflows/drain-b200-nvd2.yml'
 
 jobs:
   hold:
