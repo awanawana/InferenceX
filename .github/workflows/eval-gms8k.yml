@@ -52,7 +52,7 @@ jobs:
       runner: h200-cw_1
       image: ${{ inputs.image || 'lmsysorg/sglang:v0.5.5-cu129-amd64' }}
       model: ${{ inputs.model || 'deepseek-ai/DeepSeek-R1-0528' }}
-      framework: sglang
+      framework: sglang 
       precision: fp8
       exp-name: ${{ inputs.exp-name || 'dsr1_gsm8k_poc' }}
       tp: '8'
