@@ -266,7 +266,7 @@ run_lm_eval() {
     local task="${EVAL_TASK:-gsm8k}"
     local num_fewshot="${NUM_FEWSHOT:-5}"
     local results_dir="${EVAL_RESULT_DIR:-eval_out}"
-    local gen_max_tokens=1024
+    local gen_max_tokens=4096
     local temperature=0
     local top_p=1
     local concurrent_requests=32
