@@ -134,105 +134,15 @@ _install_lm_eval_deps() {
 }
 
 # Patch lm-eval filters to be robust to empty strings via sitecustomize
+# Patch lm-eval filters to be robust to empty strings via sitecustomize
 _patch_lm_eval_filters() {
     set +x
     local patch_dir
     patch_dir="$(mktemp -d)"
     cat > "$patch_dir/sitecustomize.py" <<'PY'
-import re, sys, unicodedata
+import re, sys, unicodedata, json
 from lm_eval.filters import extraction as ex
 from lm_eval.models.openai_completions import LocalChatCompletion as _LCC
-
-def _s(x):  # coerce to str
-    return x if isinstance(x, str) else ""
-
-# --- Patch RegexFilter.apply ---
-_orig_regex_apply = ex.RegexFilter.apply
-def _safe_regex_apply(self, resps, docs):
-    out = []
-    for inst in resps:
-        filtered = []
-        for resp in inst:
-            txt = _s(resp)
-            m = self.regex.findall(txt)
-            if m:
-                m = m[self.group_select]
-                if isinstance(m, tuple):
-                    m = [t for t in m if t]
-                    m = m[0] if m else self.fallback
-                m = m.strip()
-            else:
-                m = self.fallback
-            filtered.append(m)
-        out.append(filtered)
-    return out
-ex.RegexFilter.apply = _safe_regex_apply
-
-# --- Patch MultiChoiceRegexFilter.apply ---
-_orig_mc_apply = ex.MultiChoiceRegexFilter.apply
-def _safe_mc_apply(self, resps, docs):
-    def find_match(regex, resp, convert_dict={}):
-        txt = _s(resp)
-        match = regex.findall(txt)
-        if match:
-            match = match[self.group_select]
-            if isinstance(match, tuple):
-                match = [m for m in match if m]
-                if match:
-                    match = match[0]
-        if match:
-            match = match.strip()
-            if match in convert_dict:
-                return convert_dict[match]
-            return match
-        return None
-
-    punct_tbl = dict.fromkeys(
-        i for i in range(sys.maxunicode)
-        if unicodedata.category(chr(i)).startswith("P")
-    )
-
-    def filter_ignores(st):
-        st = _s(st)
-        if self.regexes_to_ignore is not None:
-            for s in self.regexes_to_ignore:
-                st = re.sub(s, "", st)
-        if self.ignore_case:
-            st = st.lower()
-        if self.ignore_punctuation:
-            st = st.translate(punct_tbl)
-        return st
-
-    out = []
-    for r, doc in zip(resps, docs):
-        fallback_regexes, choice_to_alpha = [], {}
-        next_alpha = "A"
-        without_paren, without_paren_to_target = [], {}
-        for c in doc.get("choices", []):
-            m = filter_ignores(c.strip())
-            fallback_regexes.append(re.escape(m))
-            choice_to_alpha[m] = f"({next_alpha})"
-            without_paren.append(next_alpha)
-            without_paren_to_target[next_alpha] = f"({next_alpha})"
-            next_alpha = chr(ord(next_alpha) + 1)
-
-        fallback_regex = re.compile("|".join(fallback_regexes)) if fallback_regexes else None
-        without_paren_regex = re.compile(rf":[\s]*({'|'.join(without_paren)})") if without_paren else None
-
-        filtered = []
-        for resp in r:
-            m = find_match(self.regex, resp)
-            if not m and fallback_regex:
-                m = find_match(fallback_regex, filter_ignores(resp), choice_to_alpha)
-            if not m and without_paren_regex:
-                m = find_match(without_paren_regex, resp, without_paren_to_target)
-            if not m:
-                m = self.fallback
-            filtered.append(m)
-        out.append(filtered)
-    return out
-
-ex.MultiChoiceRegexFilter.apply = _safe_mc_apply
 
 def _le_parse_generations(outputs, **kwargs):
       res = []
@@ -256,6 +166,44 @@ def _le_parse_generations(outputs, **kwargs):
 
 # Keep staticmethod semantics
 _LCC.parse_generations = staticmethod(_le_parse_generations)
+
+# --- Patch TemplateAPI.apply_chat_template to avoid injecting "type": "text" ---
+try:
+    from lm_eval.models import api_models as _api_models
+    _TemplateAPI = _api_models.TemplateAPI
+    _JsonChatStr = _api_models.JsonChatStr
+except Exception:
+    _TemplateAPI = None
+    _JsonChatStr = None
+
+if _TemplateAPI is not None and _JsonChatStr is not None:
+    _orig_apply_chat_template = _TemplateAPI.apply_chat_template
+
+    def _patched_apply_chat_template(
+        self,
+        chat_history,
+        add_generation_prompt: bool = True,
+    ):
+        """Applies a chat template to a list of chat history between user and model."""
+        if self.tokenizer_backend == "huggingface" and self.tokenized_requests:
+            return self.tokenizer.apply_chat_template(
+                chat_history,
+                tokenize=False,
+                add_generation_prompt=add_generation_prompt,
+                continue_final_message=not add_generation_prompt,
+            )
+        elif self.tokenizer_backend == "remote" and self.tokenized_requests:
+            return chat_history
+        else:
+            # NOTE: we no longer inject `"type": "text"` when tokenizer is None / non-HF
+            return _JsonChatStr(
+                json.dumps(
+                    [{**item} for item in chat_history],
+                    ensure_ascii=False,
+                )
+            )
+
+    _TemplateAPI.apply_chat_template = _patched_apply_chat_template
 PY
     export PYTHONPATH="${patch_dir}:${PYTHONPATH:-}"
 }
