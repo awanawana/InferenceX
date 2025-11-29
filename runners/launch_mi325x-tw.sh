@@ -23,13 +23,3 @@ srun --jobid=$JOB_ID \
 bash benchmarks/${EXP_NAME%%_*}_${PRECISION}_mi325x_slurm.sh
 
 scancel $JOB_ID
-
-# Fallback: append summary after job completes if container couldn't write directly
-if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-  GH_SUM_DIR="$(dirname "${GITHUB_STEP_SUMMARY}")"
-  if [ -d "${GH_SUM_DIR}" ]; then
-    if [ -f "${GITHUB_WORKSPACE}/${EVAL_RESULT_DIR:-eval_out}/SUMMARY.md" ]; then
-      cat "${GITHUB_WORKSPACE}/${EVAL_RESULT_DIR:-eval_out}/SUMMARY.md" >> "${GITHUB_STEP_SUMMARY}" || true
-    fi
-  fi
-fi
