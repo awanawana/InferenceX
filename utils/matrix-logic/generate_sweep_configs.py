@@ -89,16 +89,24 @@ def validate_matrix_output(matrix_values: List[dict]) -> List[dict]:
 def mark_eval_entries(matrix_values: List[dict]) -> List[dict]:
     """Mark entries that should run evaluation.
     
-    For each unique (model, runner, isl, osl) combination:
+    For each unique (model, runner, framework, precision, isl, osl) combination:
     - Mark highest TP with highest conc
     - Mark lowest TP with highest conc
     """
     from collections import defaultdict
     
-    # Group entries by (model, runner, isl, osl)
+    # Group entries by (model, runner, framework, precision, isl, osl)
+    # This ensures we compare within the same configuration, not across different frameworks
     groups = defaultdict(list)
     for i, entry in enumerate(matrix_values):
-        key = (entry[FIELD_MODEL], entry[FIELD_RUNNER], entry[FIELD_ISL], entry[FIELD_OSL])
+        key = (
+            entry[FIELD_MODEL], 
+            entry[FIELD_RUNNER], 
+            entry[FIELD_FRAMEWORK],
+            entry[FIELD_PRECISION],
+            entry[FIELD_ISL], 
+            entry[FIELD_OSL]
+        )
         groups[key].append((i, entry))
     
     # For each group, find highest TP/highest conc and lowest TP/highest conc
