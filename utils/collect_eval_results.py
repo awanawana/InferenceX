@@ -109,20 +109,6 @@ def detect_eval_jsons(d: Path) -> Tuple[Optional[Path], Optional[Path]]:
     return lm_path, le_path
 
 
-def parse_pretty_env(pretty_env: str) -> str:
-    try:
-        lines = [l for l in pretty_env.splitlines() if l.startswith('GPU ')]
-        names = [l.split(':', 1)[1].strip() for l in lines]
-        if not names:
-            return 'Unknown GPU'
-        # Compress identical names (roughly)
-        from collections import Counter
-        c = Counter(names)
-        return ' + '.join([f"{n}× {name}" for name, n in c.items()])
-    except Exception:
-        return 'Unknown GPU'
-
-
 def extract_lm_metrics(json_path: Path, task: Optional[str] = None) -> Dict[str, Any]:
     data = load_json(json_path) or {}
     results = data.get('results') or {}
@@ -220,11 +206,6 @@ def extract_lm_metrics(json_path: Path, task: Optional[str] = None) -> Dict[str,
         if isinstance(td, dict):
             n_eff = td.get('effective') or td.get('n_eff')
 
-    hardware = 'Unknown GPU'
-    pe = data.get('pretty_env_info')
-    if isinstance(pe, str) and pe:
-        hardware = parse_pretty_env(pe)
-
     model = (
         data.get('model_name')
         or (data.get('configs', {}).get(t, {}) or {}).get('metadata', {}).get('model')
@@ -239,7 +220,7 @@ def extract_lm_metrics(json_path: Path, task: Optional[str] = None) -> Dict[str,
         'strict_se': strict_se,
         'flex_se': flex_se,
         'n_eff': n_eff,
-        'hardware': hardware,
+        'hardware': 'Unknown GPU',
         'model': model,
         'source': str(json_path)
     }
@@ -313,14 +294,8 @@ def main():
             continue
 
         # Merge with meta
-        # Prefer explicit hardware identifiers from meta (if present) and fall back to parsed pretty_env_info
-        hw_meta = (
-            meta.get('hw')
-            or meta.get('runner')
-            or meta.get('RUNNER_TYPE')
-            or None
-        )
-        hw_value = hw_meta if hw_meta else m.get('hardware', 'Unknown GPU')
+        # Only use explicit hardware label written to meta_env.json ('hw')
+        hw_value = meta.get('hw', 'Unknown GPU')
         row = {
             'model': m.get('model') or meta.get('model') or 'unknown',
             'hw': hw_value,

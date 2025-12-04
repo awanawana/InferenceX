@@ -295,7 +295,8 @@ append_lm_eval_summary() {
   "tp": ${TP:-1},
   "ep": ${EP_SIZE:-1},
   "dp_attention": ${dp_json},
-  "model": "${model_name:-}"
+  "model": "${model_name:-}",
+  "hw": "${RUNNER_TYPE:-unknown}"
 }
 META
 
