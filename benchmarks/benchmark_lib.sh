@@ -130,7 +130,7 @@ _install_lm_eval_deps() {
     python3 -m pip install -q --no-cache-dir "lm-eval[api]" || true
     # Temporary: workaround issue by using main
     python3 -m pip install -q --no-cache-dir --no-deps \
-        "git+https://github.com/EleutherAI/lm-evaluation-harness.git@main" || true
+        "git+https://github.com/EleutherAI/lm-evaluation-harness.git@b315ef3b05176acc9732bb7fdec116abe1ecc476" || true
 }
 
 # Patch lm-eval filters to be robust to empty strings via sitecustomize
@@ -422,11 +422,6 @@ def _patched___call_api(self, prompt, return_logits, max_new_tokens, num_samples
             # Accept reasoning-only replies
             if (not content) and reasoning:
                 return response
-
-            if not content and LITELLM_CACHE:
-                logger.info("Empty content with caching on; retrying uncached once")
-                kwargs["caching"] = False
-                response = litellm.completion(**kwargs)
 
             return response
         except litellm.BadRequestError as e:

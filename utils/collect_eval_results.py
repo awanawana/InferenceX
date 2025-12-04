@@ -313,9 +313,17 @@ def main():
             continue
 
         # Merge with meta
+        # Prefer explicit hardware identifiers from meta (if present) and fall back to parsed pretty_env_info
+        hw_meta = (
+            meta.get('hw')
+            or meta.get('runner')
+            or meta.get('RUNNER_TYPE')
+            or None
+        )
+        hw_value = hw_meta if hw_meta else m.get('hardware', 'Unknown GPU')
         row = {
             'model': m.get('model') or meta.get('model') or 'unknown',
-            'hw': m.get('hardware', 'Unknown GPU'),
+            'hw': hw_value,
             'framework': (meta.get('framework') or 'unknown').lower(),
             'precision': (meta.get('precision') or 'unknown').lower(),
             'tp': int(meta.get('tp') or 1),
