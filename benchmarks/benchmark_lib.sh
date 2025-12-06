@@ -1,15 +1,12 @@
 #!/usr/bin/env bash
 
-# Shared benchmarking + evaluation utilities for InferenceMAX
-
-# ---------------------------------
-# Server readiness / benchmarks
-# ---------------------------------
+# Shared benchmarking utilities for InferenceMAX
 
 # Wait for server to be ready by polling the health endpoint
+# All parameters are required
 # Parameters:
-#   --port: Server port (required)
-#   --server-log: Path to server log file (required)
+#   --port: Server port
+#   --server-log: Path to server log file
 #   --server-pid: Server process ID (required)
 #   --sleep-interval: Sleep interval between health checks (optional, default: 5)
 wait_for_server_ready() {
@@ -19,37 +16,73 @@ wait_for_server_ready() {
     local server_pid=""
     local sleep_interval=5
 
+    # Parse arguments
     while [[ $# -gt 0 ]]; do
         case $1 in
-            --port)           port="$2"; shift 2 ;;
-            --server-log)     server_log="$2"; shift 2 ;;
-            --server-pid)     server_pid="$2"; shift 2 ;;
-            --sleep-interval) sleep_interval="$2"; shift 2 ;;
-            *)                echo "Unknown parameter: $1"; return 1 ;;
+            --port)
+                port="$2"
+                shift 2
+                ;;
+            --server-log)
+                server_log="$2"
+                shift 2
+                ;;
+            --server-pid)
+                server_pid="$2"
+                shift 2
+                ;;
+            --sleep-interval)
+                sleep_interval="$2"
+                shift 2
+                ;;
+            *)
+                echo "Unknown parameter: $1"
+                return 1
+                ;;
         esac
     done
 
-    if [[ -z "$port" ]]; then echo "Error: --port is required"; return 1; fi
-    if [[ -z "$server_log" ]]; then echo "Error: --server-log is required"; return 1; fi
-    if [[ -z "$server_pid" ]]; then echo "Error: --server-pid is required"; return 1; fi
+    # Validate required parameters
+    if [[ -z "$port" ]]; then
+        echo "Error: --port is required"
+        return 1
+    fi
+    if [[ -z "$server_log" ]]; then
+        echo "Error: --server-log is required"
+        return 1
+    fi
+    if [[ -z "$server_pid" ]]; then
+        echo "Error: --server-pid is required"
+        return 1
+    fi
 
     # Show logs until server is ready
-    tail -f "$server_log" &
+    tail -f -n +1 "$server_log" &
     local TAIL_PID=$!
-    
-    until curl --output /dev/null --silent --fail "http://0.0.0.0:$port/health"; do
+    until curl --output /dev/null --silent --fail http://0.0.0.0:$port/health; do
         if ! kill -0 "$server_pid" 2>/dev/null; then
             echo "Server died before becoming healthy. Exiting."
-            kill "$TAIL_PID"
+            kill $TAIL_PID
             exit 1
         fi
         sleep "$sleep_interval"
     done
-    kill "$TAIL_PID"
+    kill $TAIL_PID
 }
 
 # Run benchmark serving with standardized parameters
-# All parameters are required unless otherwise noted
+# All parameters are required
+# Parameters:
+#   --model: Model name
+#   --port: Server port
+#   --backend: Backend type - e.g., 'vllm' or 'openai'
+#   --input-len: Random input sequence length
+#   --output-len: Random output sequence length
+#   --random-range-ratio: Random range ratio
+#   --num-prompts: Number of prompts
+#   --max-concurrency: Max concurrency
+#   --result-filename: Result filename without extension
+#   --result-dir: Result directory
 run_benchmark_serving() {
     set +x
     local model=""
@@ -126,16 +159,13 @@ run_benchmark_serving() {
 # ------------------------------
 
 _install_lm_eval_deps() {
-    set +x
     python3 -m pip install -q --no-cache-dir "lm-eval[api]" || true
-    # Temporary: workaround issue by using main
     python3 -m pip install -q --no-cache-dir --no-deps \
         "git+https://github.com/EleutherAI/lm-evaluation-harness.git@b315ef3b05176acc9732bb7fdec116abe1ecc476" || true
 }
 
 # Patch lm-eval filters to be robust to empty strings via sitecustomize
 _patch_lm_eval() {
-    set +x
     local patch_dir
     patch_dir="$(mktemp -d)"
     cat > "$patch_dir/sitecustomize.py" <<'PY'
@@ -209,7 +239,6 @@ PY
 }
 
 run_lm_eval() {
-    set +x
     local port="${PORT:-8888}"
     local task="${EVAL_TASK:-gsm8k}"
     local num_fewshot="${NUM_FEWSHOT:-2}"
@@ -255,7 +284,6 @@ run_lm_eval() {
 }
 
 append_lm_eval_summary() {
-    set +x
     local results_dir="${EVAL_RESULT_DIR}"
     local task="${EVAL_TASK:-gsm8k}"
     local out_dir="${results_dir}"
@@ -327,15 +355,13 @@ META
 # ------------------------------
 
 _install_lighteval_deps() {
-    set +x
-    python3 -m pip install -q --no-cache-dir "lighteval[api]" "litellm" || true
+    python3 -m pip install -q --no-cache-dir "lighteval==0.13.0" "litellm==1.80.7" || true
 }
 
 # Patch lighteval's LiteLLMClient to handle reasoning content and Python name mangling
 # 1. Removed "response_format": {"type": "text"}, as it interferred with vllm endpoint
 # 2. Concat reasoning with output tokens as sometimes the output is empty.
 _patch_lighteval_litellm() {
-    set +x
     local patch_dir
     patch_dir="$(mktemp -d)"
     cat > "$patch_dir/sitecustomize.py" <<'PY'
@@ -550,7 +576,6 @@ PY
 }
 
 run_lighteval_eval() {
-    set +x
     local port="${PORT:-8888}"
     local task="${EVAL_TASK:-gsm8k}"
     local num_fewshot="${NUM_FEWSHOT:-5}"
@@ -589,7 +614,7 @@ run_lighteval_eval() {
     local base_url="http://0.0.0.0:${port}/v1"
     export OPENAI_API_KEY="${OPENAI_API_KEY:-EMPTY}"
 
-    local MODEL_ARGS="model_name=${lite_model},base_url=${base_url},api_key=${OPENAI_API_KEY},generation_parameters={temperature:0.0,top_p=1,max_new_tokens:2048},concurrent_requests=${concurrent_requests}"
+    local MODEL_ARGS="model_name=${lite_model},base_url=${base_url},api_key=${OPENAI_API_KEY},generation_parameters={temperature:0.0,top_p:1,max_new_tokens:2048},concurrent_requests=${concurrent_requests}"
     local TASK_SPEC="${task}|${num_fewshot}"
 
     # Respect absolute paths (e.g., /tmp/eval_out); otherwise write under /workspace
@@ -619,7 +644,6 @@ run_lighteval_eval() {
 # ------------------------------
 
 run_eval() {
-    set +x
     local framework="${EVAL_FRAMEWORK:-lm-eval}"
     local forwarded=()
 
