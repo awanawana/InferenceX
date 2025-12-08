@@ -37,14 +37,14 @@ else
     # Update the IMAGE variable to the squash file
     export IMAGE=$SQUASH_FILE
 
-    if [[ $MODEL == *"gpt-oss"* ]]; then
+    if [[ $MODEL_PREFIX == "gptoss" ]]; then
         export MODEL_PATH="/mnt/lustre01/models/gpt-oss-120b"
         export SERVED_MODEL_NAME="gpt-oss-120b"
-    elif [[ $MODEL == *"deepseek-r1-fp4" ]]; then
+    elif [[ $MODEL_PREFIX == "dsr1" ]]; then
         export MODEL_PATH="/mnt/lustre01/models/deepseek-r1-0528-fp4-v2"
         export SERVED_MODEL_NAME="deepseek-r1-fp4"
     else
-        echo "Unsupported model: $MODEL. Supported models are: gpt-oss, deepseek-r1-fp4"
+        echo "Unsupported model prefix: $MODEL_PREFIX. Supported prefixes are: gptoss, dsr1"
         exit 1
     fi
 fi
