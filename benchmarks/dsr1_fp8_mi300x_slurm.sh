@@ -43,6 +43,7 @@ python3 -m sglang.launch_server \
 --max-prefill-tokens=196608 \
 --disable-radix-cache \
 --enable-torch-compile \
+--piecewise-cuda-graph-compiler eager \
 --attention-backend aiter \
 --kv-cache-dtype fp8_e4m3 \
 > $SERVER_LOG 2>&1 &

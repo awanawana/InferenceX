@@ -33,6 +33,7 @@ python3 -m sglang.launch_server \
     --max-prefill-tokens 196608 \
     --enable-torch-compile \
     --kv-cache-dtype fp8_e4m3 \
+    --piecewise-cuda-graph-compiler eager \
     --cuda-graph-max-bs 128 > $SERVER_LOG 2>&1 &
 
 SERVER_PID=$!
