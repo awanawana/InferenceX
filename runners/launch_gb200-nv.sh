@@ -1,13 +1,48 @@
 #!/usr/bin/bash
 
-# This script sets up the environment and launches multi-node benchmarks
+# This script sets up the environment and launches benchmarks on GB200
+# Supports both single-node TRT and multi-node Dynamo (TRT/SGLang) configurations
 
 set -x
 
 # Set up environment variables for SLURM
 export SLURM_PARTITION="batch"
 export SLURM_ACCOUNT="benchmark"
-export SLURM_JOB_NAME="benchmark-dynamo.job"
+export SLURM_JOB_NAME="benchmark-gb200.job"
+
+MODEL_CODE="${EXP_NAME%%_*}"
+
+# ============================================================================
+# SINGLE-NODE TRT: Handle non-Dynamo TRT framework (single-node deployment)
+# ============================================================================
+if [[ $FRAMEWORK == "trt" ]]; then
+    echo "Running single-node TRT benchmark on GB200"
+
+    # Import the container image
+    SQUASH_FILE="/mnt/lustre01/users/sa-shared/images/$(echo "$IMAGE" | sed 's/[\/:@#]/_/g').sqsh"
+    srun --partition=$SLURM_PARTITION --exclusive --time=180 bash -c "enroot import -o $SQUASH_FILE docker://$IMAGE"
+
+    export HF_HUB_CACHE_MOUNT="/mnt/lustre01/models/"
+    export PORT_OFFSET=0
+
+    salloc --partition=$SLURM_PARTITION --account=$SLURM_ACCOUNT --gres=gpu:$TP --exclusive --time=180 --no-shell
+    JOB_ID=$(squeue -u $USER -h -o %A | head -n1)
+
+    srun --jobid=$JOB_ID \
+    --container-image=$SQUASH_FILE \
+    --container-mounts=$GITHUB_WORKSPACE:/workspace/,$HF_HUB_CACHE_MOUNT:$HF_HUB_CACHE \
+    --no-container-mount-home --container-writable \
+    --container-workdir=/workspace/ \
+    --no-container-entrypoint --export=ALL \
+    bash benchmarks/${MODEL_CODE}_${PRECISION}_gb200_trt_slurm.sh
+
+    scancel $JOB_ID
+    exit 0
+fi
+
+# ============================================================================
+# MULTI-NODE DYNAMO: Handle Dynamo frameworks (dynamo-sglang, dynamo-trt)
+# ============================================================================
 
 # For SGLang - we are working on updating the 8k1k configs 
 # For now we add conditionals to this script to use newer code for the 1k1k configs

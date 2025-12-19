@@ -239,6 +239,42 @@ gptoss-fp4-b200-vllm:
     - { tp: 4, conc-start: 4, conc-end: 64 }
     - { tp: 8, conc-start: 4, conc-end: 4 }
 
+gptoss-fp4-gb200-trt:
+  image: nvcr.io#nvidia/tensorrt-llm/release:1.2.0rc2
+  model: openai/gpt-oss-120b
+  model-prefix: gptoss
+  runner: gb200
+  precision: fp4
+  framework: trt
+  multinode: false
+  # For all sequence lengths, if CONC >= 256, then EP=TP and DP_ATTN=true
+  seq-len-configs:
+  - isl: 1024
+    osl: 1024
+    search-space:
+    - { tp: 2, dp-attn: true, conc-start: 32, conc-end: 128 }
+    - { tp: 4, dp-attn: true, conc-start: 32, conc-end: 64 }
+    - { tp: 1, conc-start: 64, conc-end: 128 }
+    - { tp: 2, conc-start: 4, conc-end: 32 }
+    - { tp: 4, conc-start: 4, conc-end: 64 }
+    - { tp: 8, conc-start: 4, conc-end: 8 }
+  - isl: 1024
+    osl: 8192
+    search-space:
+    - { tp: 1, conc-start: 64, conc-end: 128 }
+    - { tp: 2, dp-attn: true, conc-start: 64, conc-end: 128 }
+    - { tp: 2, conc-start: 4, conc-end: 128 }
+    - { tp: 4, conc-start: 4, conc-end: 128 }
+    - { tp: 8, conc-start: 4, conc-end: 16 }
+  - isl: 8192
+    osl: 1024
+    search-space:
+    - { tp: 1, conc-start: 64, conc-end: 128 }
+    - { tp: 2, dp-attn: true, conc-start: 64, conc-end: 128 }
+    - { tp: 2, conc-start: 4, conc-end: 128 }
+    - { tp: 4, conc-start: 4, conc-end: 32 }
+    - { tp: 8, conc-start: 4, conc-end: 8 }
+
 gptoss-fp4-h100-vllm:
   image: vllm/vllm-openai:v0.11.2
   model: openai/gpt-oss-120b
