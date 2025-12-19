@@ -18,9 +18,14 @@ MODEL_CODE="${EXP_NAME%%_*}"
 if [[ $FRAMEWORK == "trt" ]]; then
     echo "Running single-node TRT benchmark on GB200"
 
-    # Import the container image
+    # Import the container image (skip if already exists)
     SQUASH_FILE="/mnt/lustre01/users/sa-shared/images/$(echo "$IMAGE" | sed 's/[\/:@#]/_/g').sqsh"
-    srun --partition=$SLURM_PARTITION --exclusive --time=180 bash -c "enroot import -o $SQUASH_FILE docker://$IMAGE"
+    if [ ! -f "$SQUASH_FILE" ]; then
+        echo "Importing container image to $SQUASH_FILE"
+        srun --partition=$SLURM_PARTITION --exclusive --time=180 bash -c "enroot import -o $SQUASH_FILE docker://$IMAGE"
+    else
+        echo "Container image already exists at $SQUASH_FILE, skipping import"
+    fi
 
     export HF_HUB_CACHE_MOUNT="/mnt/lustre01/models/"
     export PORT_OFFSET=0
