@@ -178,13 +178,13 @@ gptoss-fp4-mi355x-vllm:
     - { tp: 8, conc-start: 4, conc-end: 8 }
 
 
-dsr1-fp8-mi355x-sglang-standalone:
+dsr1-fp8-mi355x-sglang-disagg:
   image: rocm/sgl-dev:sglang-0.5.6.post1-rocm700-mi35x-mori-1218
   model: deepseek-ai/DeepSeek-R1-0528
   model-prefix: dsr1
   runner: mi355x
   precision: fp8
-  framework: sglang-standalone
+  framework: sglang
   multinode: true
   disagg: true
   seq-len-configs:
