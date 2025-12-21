@@ -27,7 +27,17 @@ if [[ $FRAMEWORK == "trt" ]]; then
         echo "Container image already exists at $SQUASH_FILE, skipping import"
     fi
 
-    export HF_HUB_CACHE_MOUNT="/mnt/lustre01/models/"
+    # Set MODEL_PATH directly to avoid HuggingFace permission issues on shared filesystem
+    # Note: Only gptoss is supported for single-node TRT on GB200
+    # DeepSeek models should use multi-node dynamo-trt instead
+    if [[ $MODEL_PREFIX == "gptoss" ]]; then
+        export MODEL_PATH="/mnt/lustre01/models/gpt-oss-120b"
+    else
+        echo "ERROR: Unsupported model prefix for single-node TRT on GB200: $MODEL_PREFIX"
+        echo "Only 'gptoss' is supported for single-node TRT. Use dynamo-trt for other models."
+        exit 1
+    fi
+
     export PORT_OFFSET=0
 
     salloc --partition=$SLURM_PARTITION --account=$SLURM_ACCOUNT --gres=gpu:$TP --exclusive --time=180 --no-shell
@@ -35,7 +45,7 @@ if [[ $FRAMEWORK == "trt" ]]; then
 
     srun --jobid=$JOB_ID \
     --container-image=$SQUASH_FILE \
-    --container-mounts=$GITHUB_WORKSPACE:/workspace/,$HF_HUB_CACHE_MOUNT:$HF_HUB_CACHE \
+    --container-mounts=$GITHUB_WORKSPACE:/workspace/,$MODEL_PATH:/models \
     --no-container-mount-home --container-writable \
     --container-workdir=/workspace/ \
     --no-container-entrypoint --export=ALL \

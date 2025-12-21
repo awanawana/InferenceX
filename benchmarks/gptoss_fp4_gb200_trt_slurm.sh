@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # === Required Env Vars ===
-# MODEL
+# MODEL_PATH (set by launch script - direct path to model files)
 # TP
 # CONC
 # ISL
@@ -19,8 +19,12 @@
 echo "JOB $SLURM_JOB_ID running on $SLURMD_NODENAME"
 
 echo "TP: $TP, CONC: $CONC, ISL: $ISL, OSL: $OSL, EP_SIZE: $EP_SIZE, DP_ATTENTION: $DP_ATTENTION"
+echo "MODEL_PATH: /models (mounted from $MODEL_PATH)"
 
-hf download $MODEL
+# Use direct model path - mounted at /models inside container
+# This avoids HuggingFace permission issues on shared filesystem
+LOCAL_MODEL_PATH="/models"
+
 SERVER_LOG=$(mktemp /tmp/server-XXXXXX.log)
 PORT=$(( 8888 + $PORT_OFFSET ))
 
@@ -65,9 +69,9 @@ set -x
 
 MAX_NUM_TOKENS=20000
 
-# Launch TRT-LLM server
+# Launch TRT-LLM server using direct model path
 mpirun -n 1 --oversubscribe --allow-run-as-root \
-    trtllm-serve $MODEL --port=$PORT \
+    trtllm-serve $LOCAL_MODEL_PATH --port=$PORT \
     --trust_remote_code \
     --backend=pytorch \
     --max_batch_size 512 \
@@ -86,7 +90,7 @@ source "$(dirname "$0")/benchmark_lib.sh"
 wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$SERVER_PID"
 
 run_benchmark_serving \
-    --model "$MODEL" \
+    --model "$LOCAL_MODEL_PATH" \
     --port "$PORT" \
     --backend openai \
     --input-len "$ISL" \
