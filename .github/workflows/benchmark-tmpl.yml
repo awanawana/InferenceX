@@ -54,6 +54,7 @@ on:
         required: false
         type: string
         default: '0.8'
+        
       ref:
         description: "Git ref (branch/sha) to checkout"
         required: false

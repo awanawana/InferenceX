@@ -81,6 +81,7 @@ on:
         required: false
         type: string
         default: "[]"
+        
       ref:
         description: "Git ref (branch/sha) to checkout"
         required: false
