@@ -19,6 +19,8 @@ if [[ "$IS_MULTINODE" == "true" ]]; then
   export ISL="$ISL"
   export OSL="$OSL"
 
+  sudo rm -rf "$SGL_SLURM_JOBS_PATH/logs" 2>/dev/null || true
+
   bash benchmarks/"${EXP_NAME%%_*}_${PRECISION}_mi355x_${FRAMEWORK}_slurm.sh"
 
   # Wait for all jobs to complete
@@ -38,8 +40,6 @@ if [[ "$IS_MULTINODE" == "true" ]]; then
   # TODO(billishyahao): process the log file...
   # search for "FRAMEWORK_DIFF_IF_STATEMENT #3" for this if-statement
   # Find the latest log directory that contains the data
-
-  sudo chown -R $USER:$(id -gn) $SGL_SLURM_JOBS_PATH/logs
 
   cat > collect_latest_results.py <<'PY'
 import os, sys
@@ -70,6 +70,7 @@ PY
   done
 
   echo "All result files processed"
+  sudo rm -rf "$SGL_SLURM_JOBS_PATH/logs" 2>/dev/null || true
 else
 export HF_HUB_CACHE_MOUNT="/hf-hub-cache"
   export PORT_OFFSET=${USER: -1}
