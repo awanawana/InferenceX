@@ -48,6 +48,16 @@ source "$(dirname "$0")/benchmark_lib.sh"
 # Wait for server to be ready
 wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$SERVER_PID"
 
+# If profiling is enabled, start profiling via SGLang HTTP API
+if [[ "${PROFILE:-}" == "1" ]]; then
+    PROFILE_OUT_DIR="${SGLANG_TORCH_PROFILER_DIR:-/workspace/profiles}"
+    mkdir -p "$PROFILE_OUT_DIR"
+    echo "[PROFILE] Starting profiling; output_dir=$PROFILE_OUT_DIR"
+    curl -s -X POST "http://0.0.0.0:$PORT/start_profile" \
+      -H "Content-Type: application/json" \
+      -d "{\"output_dir\": \"$PROFILE_OUT_DIR\", \"merge_profiles\": true, \"activities\": [\"CPU\", \"GPU\"], \"start_step\": 3}" || true
+fi
+
 run_benchmark_serving \
     --model "$MODEL" \
     --port "$PORT" \
@@ -59,3 +69,28 @@ run_benchmark_serving \
     --max-concurrency "$CONC" \
     --result-filename "$RESULT_FILENAME" \
     --result-dir /workspace/
+
+# Stop profiling and collect the generated trace if profiling was enabled
+if [[ "${PROFILE:-}" == "1" ]]; then
+    echo "[PROFILE] Stopping profiling"
+    curl -s -X POST "http://0.0.0.0:$PORT/end_profile" || true
+
+    PROFILE_OUT_DIR="${SGLANG_TORCH_PROFILER_DIR:-/workspace/profiles}"
+    # Prefer merged trace if present
+    TRACE_FILE=$(ls -t "$PROFILE_OUT_DIR"/merged-*.trace.json.gz 2>/dev/null | head -n1)
+    if [[ -z "$TRACE_FILE" ]]; then
+        TRACE_FILE=$(ls -t "$PROFILE_OUT_DIR"/*.trace.json.gz 2>/dev/null | head -n1)
+    fi
+
+    if [[ -n "$TRACE_FILE" ]]; then
+        DEST_TRACE="/workspace/profile_${RESULT_FILENAME}.trace.json.gz"
+        echo "[PROFILE] Found trace: $TRACE_FILE -> $DEST_TRACE"
+        cp "$TRACE_FILE" "$DEST_TRACE"
+        # Export for GitHub Actions subsequent steps
+        if [[ -n "${GITHUB_ENV:-}" ]]; then
+            echo "PROFILE_TRACE_PATH=$DEST_TRACE" >> "$GITHUB_ENV"
+        fi
+    else
+        echo "[PROFILE] No trace file found under $PROFILE_OUT_DIR" >&2
+    fi
+fi
