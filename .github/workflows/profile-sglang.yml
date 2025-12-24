@@ -229,7 +229,7 @@ jobs:
         run: |
           echo "Artifact uploaded: profile_${RESULT_FILENAME}" | tee -a "$GITHUB_STEP_SUMMARY"
           echo "Run URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" | tee -a "$GITHUB_STEP_SUMMARY"
-          echo "Open Perfetto UI (https://ui.perfetto.dev) and load profile_${RESULT_FILENAME}.trace.json.gz from the artifact." | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "https://ui.perfetto.dev" | tee -a "$GITHUB_STEP_SUMMARY"
 
   profile-push:
     if: ${{ github.event_name == 'push' }}

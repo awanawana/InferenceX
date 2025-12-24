@@ -52,45 +52,57 @@ wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$S
 if [[ "${PROFILE:-}" == "1" ]]; then
     PROFILE_OUT_DIR="${SGLANG_TORCH_PROFILER_DIR:-/workspace/profiles}"
     mkdir -p "$PROFILE_OUT_DIR"
-    echo "[PROFILE] Starting profiling; output_dir=$PROFILE_OUT_DIR"
-    curl -s -X POST "http://0.0.0.0:$PORT/start_profile" \
-      -H "Content-Type: application/json" \
-      -d "{\"output_dir\": \"$PROFILE_OUT_DIR\", \"merge_profiles\": true, \"activities\": [\"CPU\", \"GPU\"], \"start_step\": 3, \"num_steps\": 60}" || true
 fi
 
 run_benchmark_serving \
-    --model "$MODEL" \
-    --port "$PORT" \
-    --backend vllm \
-    --input-len "$ISL" \
-    --output-len "$OSL" \
-    --random-range-ratio "$RANDOM_RANGE_RATIO" \
-    --num-prompts $(( (${PROFILE:-0} == 1) ? 1 : (CONC * 10) )) \
-    --max-concurrency "$CONC" \
-    --result-filename "$RESULT_FILENAME" \
-    --result-dir /workspace/
+  --model "$MODEL" \
+  --port "$PORT" \
+  --backend vllm \
+  --input-len "$ISL" \
+  --output-len "$OSL" \
+  --random-range-ratio "$RANDOM_RANGE_RATIO" \
+  --num-prompts $((CONC * 10)) \
+  --max-concurrency "$CONC" \
+  --result-filename "$RESULT_FILENAME" \
+  --result-dir /workspace/ \
+  &
+BENCH_PID=$!
 
-# Stop profiling and collect the generated trace if profiling was enabled
 if [[ "${PROFILE:-}" == "1" ]]; then
-    echo "[PROFILE] Stopping profiling"
-    curl -s -X POST "http://0.0.0.0:$PORT/stop_profile" || true
+  PROFILE_OUT_DIR="${SGLANG_TORCH_PROFILER_DIR}"
+  echo "[PROFILE] Will start mid-run; dir=$PROFILE_OUT_DIR"
 
-    PROFILE_OUT_DIR="${SGLANG_TORCH_PROFILER_DIR:-/workspace/profiles}"
-    # Prefer merged trace if present
-    TRACE_FILE=$(ls -t "$PROFILE_OUT_DIR"/*.trace.json* 2>/dev/null | head -n1)
-    if [[ -z "$TRACE_FILE" ]]; then
-        TRACE_FILE=$(ls -t "$PROFILE_OUT_DIR"/*.trace.json.gz 2>/dev/null | head -n1)
-    fi
+  # Wait until the run has ramped up (tune this)
+  sleep "${PROFILE_DELAY_SECS:-60}"
 
-    if [[ -n "$TRACE_FILE" ]]; then
-        DEST_TRACE="/workspace/profile_${RESULT_FILENAME}.trace.json.gz"
-        echo "[PROFILE] Found trace: $TRACE_FILE -> $DEST_TRACE"
-        cp "$TRACE_FILE" "$DEST_TRACE"
-        # Export for GitHub Actions subsequent steps
-        if [[ -n "${GITHUB_ENV:-}" ]]; then
-            echo "PROFILE_TRACE_PATH=$DEST_TRACE" >> "$GITHUB_ENV"
-        fi
-    else
-        echo "[PROFILE] No trace file found under $PROFILE_OUT_DIR" >&2
-    fi
+  # Start a SMALL bounded capture (this auto-stops; do NOT call stop_profile)
+  curl -sf -X POST "http://127.0.0.1:$PORT/start_profile" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"output_dir\": \"$PROFILE_OUT_DIR\",
+      \"num_steps\": 30,
+      \"start_step\": 0,
+      \"activities\": [\"GPU\"],
+      \"merge_profiles\": true
+    }" || true
+fi
+
+wait "$BENCH_PID"
+
+if [[ "${PROFILE:-}" == "1" ]]; then
+  # Wait briefly for the file to appear (auto-stop writes it)
+  TRACE_FILE=""
+  for _ in {1..180}; do
+    TRACE_FILE=$(ls -t "$SGLANG_TORCH_PROFILER_DIR"/*.trace.json* 2>/dev/null | head -n1)
+    [[ -n "$TRACE_FILE" ]] && break
+    sleep 1
+  done
+
+  if [[ -n "$TRACE_FILE" ]]; then
+    DEST_TRACE="/workspace/profile_${RESULT_FILENAME}.trace.json.gz"
+    echo "[PROFILE] Found trace: $TRACE_FILE -> $DEST_TRACE"
+    cp "$TRACE_FILE" "$DEST_TRACE"
+  else
+    echo "[PROFILE] No trace found under $SGLANG_TORCH_PROFILER_DIR" >&2
+  fi
 fi
