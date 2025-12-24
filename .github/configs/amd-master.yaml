@@ -179,7 +179,7 @@ gptoss-fp4-mi355x-vllm:
 
 
 dsr1-fp8-mi355x-sglang-disagg:
-  image: rocm/pytorch-private:sglang-0.5.6.post1-rocm700-mi35x-mori-1224 # TODO: use private image temperarily, will replace it with public one after testing. 
+  image: rocm/sgl-dev:sglang-0.5.6.post1-rocm700-mi35x-mori-1224
   model: deepseek-ai/DeepSeek-R1-0528
   model-prefix: dsr1
   runner: mi355x
