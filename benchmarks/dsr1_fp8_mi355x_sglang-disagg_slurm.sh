@@ -34,7 +34,7 @@ fi
 export DECODE_ENABLE_EP=true
 if [[ "$DECODE_DP_ATTN" == "true" ]]; then
 export DECODE_ENABLE_DP=true
-else 
+else
 export DECODE_ENABLE_DP=false
 fi
 

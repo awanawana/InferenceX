@@ -48,14 +48,14 @@ for path in sorted([f"{sgl_job_dir}/logs/{name}/sglang_isl_{isl}_osl_{osl}" for 
     print(path)
 PY
 
-  LOGS_DIR=$(python3 collect_latest_results.py "$SGL_SLURM_JOBS_PATH" $ISL $OSL 1)
+  LOGS_DIR=$(python3 collect_latest_results.py "$SGL_SLURM_JOBS_PATH" "$ISL" "$OSL" 1)
   if [ -z "$LOGS_DIR" ]; then
       echo "No logs directory found for ISL=${ISL}, OSL=${OSL}"
       exit 1
   fi
 
   echo "Found logs directory: $LOGS_DIR"
-  ls -la $LOGS_DIR
+  ls -la "$LOGS_DIR"
 
   # Result JSON are contained within the result directory
   for result_file in $(find $LOGS_DIR -type f); do
@@ -64,7 +64,7 @@ PY
       if [ -f $result_file ]; then
           # Copy the result file to workspace with a unique name
           WORKSPACE_RESULT_FILE="$GITHUB_WORKSPACE/${RESULT_FILENAME}_${file_name}"
-          echo "Found result file ${result_file}. Copying them to ${WORKSPACE_RESULT_FILE}"
+          echo "Found result file ${result_file}. Copying it to ${WORKSPACE_RESULT_FILE}"
           cp $result_file $WORKSPACE_RESULT_FILE
       fi
   done
