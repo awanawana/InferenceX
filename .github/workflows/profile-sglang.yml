@@ -66,7 +66,7 @@ jobs:
           filt = [d for d in data 
                   if d.get('framework') == 'sglang' 
                   and d.get('prefill') is None 
-                  and (not is_push or int(d.get('conc', 0)) == 64)]
+                  and (not is_push or int(d.get('conc', 0)) ==128)]
           
           out = json.dumps(filt)
           print(out)

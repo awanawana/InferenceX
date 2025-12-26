@@ -265,7 +265,15 @@ def infer_cuda_graph_kernel_dims(kernel_name: str, grid: List[int],
     name_lower = kernel_name.lower()
     grid_tuple = tuple(grid) if grid else ()
     
-    # Strategy 1: Use sibling dims to get architecture parameters, but use grid for direction
+    # Strategy 1: Use sibling dims for nvjet_tst_128x8 (shared expert)
+    # The sibling with External ID has M=1 (single token routing in prefill)
+    # but CUDA Graph decode kernels should use decode_batch
+    if sibling_dims and 'nvjet_tst_128x8' in name_lower and 'nvjet_tst_128x8' in sibling_dims:
+        n, k = sibling_dims['nvjet_tst_128x8']
+        # For CUDA Graph kernels (no External ID), use decode batch size
+        return (decode_batch, n, k, 'bf16', 'FFN')
+    
+    # Strategy 2: Use sibling dims to get architecture parameters, but use grid for direction
     # nvjet_tst_64x64 with External ID gives us N=256 (intermediate), K=7168 (hidden)
     # nvjet_tst_64x8 has same architecture but different grid patterns for UP vs DOWN
     if sibling_dims and 'nvjet_tst_64x8' in name_lower and 'nvjet_tst_64x64' in sibling_dims:
@@ -297,10 +305,11 @@ def infer_cuda_graph_kernel_dims(kernel_name: str, grid: List[int],
             # [M, 7168] @ [7168, 256] → [M, 256]
             return (decode_batch, expert_intermediate_per_gpu, hidden, 'bf16', 'FFN')
     
-    # nvjet_tst_128x8 - Shared expert (larger intermediate, not divided by TP?)
+    # nvjet_tst_128x8 - Shared expert (handled by sibling matching above)
+    # If sibling matching didn't work, fall back to decode_batch
     if 'nvjet_tst_128x8' in name_lower:
-        # From traces with External ID: [[1, 7168], [7168, 16160]]
-        return (1, 16160, hidden, 'bf16', 'FFN')
+        # Shared expert: intermediate=16160, hidden=7168
+        return (decode_batch, 16160, hidden, 'bf16', 'FFN')
     
     # nvjet_tst_64x64 - Has External ID linkage in traces
     if 'nvjet_tst_64x64' in name_lower:
@@ -1869,14 +1878,21 @@ def print_summary(gemm_infos: List[GemmInfo], layer_times: Dict, gpu_specs: GPUS
     avg_mbu = sum(g.mbu * g.duration_us for g in gemm_infos) / total_time_us if total_time_us > 0 else 0
     overall_tflops = (per_gpu_flops / 1e12) / per_gpu_time_s if per_gpu_time_s > 0 else 0
     
+    def format_tflops(tflops: float) -> str:
+        """Format TFLOPS, showing PFLOPS for values >= 1000"""
+        if tflops >= 1000:
+            return f"{tflops/1000:.1f} PFLOPS"
+        else:
+            return f"{tflops:.1f} TFLOPS"
+    
     print("\n" + "="*80)
     print("GEMM/MatMul Analysis Summary (MFU, MBU, Roofline)")
     print("="*80)
     print(f"GPU: {gpu_specs.name} (x{num_gpus} GPUs in trace)")
     if gpu_specs.fp4_tflops > 0:
-        print(f"Peak FP4 TFLOPS: {gpu_specs.fp4_tflops:.1f}")
-    print(f"Peak FP8 TFLOPS: {gpu_specs.fp8_tflops:.1f}")
-    print(f"Peak BF16 TFLOPS: {gpu_specs.fp16_tflops:.1f}")
+        print(f"Peak FP4: {format_tflops(gpu_specs.fp4_tflops)}")
+    print(f"Peak FP8: {format_tflops(gpu_specs.fp8_tflops)}")
+    print(f"Peak BF16: {format_tflops(gpu_specs.fp16_tflops)}")
     print(f"Peak Memory BW: {gpu_specs.memory_bw_tb_s:.2f} TB/s")
     print(f"L2 Cache: {gpu_specs.l2_cache_mb:.0f} MB")
     print("-"*80)
@@ -2328,12 +2344,19 @@ def main():
         'tp_degree': args.tp_degree,
     }
     
+    def format_tflops(tflops: float) -> str:
+        """Format TFLOPS, showing PFLOPS for values >= 1000"""
+        if tflops >= 1000:
+            return f"{tflops/1000:.1f} PFLOPS"
+        else:
+            return f"{tflops:.1f} TFLOPS"
+    
     gpu_specs = GPU_SPECS[args.gpu]
     print(f"Using GPU specs: {gpu_specs.name}")
     if gpu_specs.fp4_tflops > 0:
-        print(f"  FP4 Peak: {gpu_specs.fp4_tflops} TFLOPS")
-    print(f"  FP8 Peak: {gpu_specs.fp8_tflops} TFLOPS")
-    print(f"  BF16 Peak: {gpu_specs.fp16_tflops} TFLOPS")
+        print(f"  FP4 Peak: {format_tflops(gpu_specs.fp4_tflops)}")
+    print(f"  FP8 Peak: {format_tflops(gpu_specs.fp8_tflops)}")
+    print(f"  BF16 Peak: {format_tflops(gpu_specs.fp16_tflops)}")
     print(f"  Memory BW: {gpu_specs.memory_bw_tb_s} TB/s")
     print(f"  L2 Cache: {gpu_specs.l2_cache_mb} MB")
     
