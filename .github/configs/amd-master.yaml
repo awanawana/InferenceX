@@ -182,7 +182,9 @@ dsr1-fp8-mi355x-sglang-disagg:
   image: rocm/sgl-dev:sglang-0.5.6.post1-rocm700-mi35x-mori-1224
   model: deepseek-ai/DeepSeek-R1-0528
   model-prefix: dsr1
-  runner: mi355x
+  # NOTE: Until this cluster has more nodes, switch to a single runner because
+  # no oversubscription is needed.
+  runner: mi355x-amd_0
   precision: fp8
   framework: sglang-disagg
   multinode: true
