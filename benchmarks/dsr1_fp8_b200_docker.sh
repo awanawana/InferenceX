@@ -51,7 +51,7 @@ wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$S
 pip install -q datasets pandas
 
 if [[ "${PROFILE:-}" == "1" ]]; then
-  SGLANG_TORCH_PROFILER_DIR="${SGLANG_TORCH_PROFILER_DIR:-/workspace/profiles}"
+  SGLANG_TORCH_PROFILER_DIR="${SGLANG_TORCH_PROFILER_DIR:-/workspace}"
   mkdir -p "$SGLANG_TORCH_PROFILER_DIR"
 fi
 

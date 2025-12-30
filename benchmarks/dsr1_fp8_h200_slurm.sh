@@ -24,10 +24,10 @@ if [[ $ISL -eq 1024 && $OSL -eq 1024 ]]; then
     PYTHONNOUSERSITE=1 python3 -m sglang.launch_server --model-path $MODEL --tokenizer-path $MODEL \
     --host 0.0.0.0 --port $PORT --trust-remote-code \
     --tensor-parallel-size=$TP --data-parallel-size=1 \
-    --disable-radix-cache --max-running-requests 512 --cuda-graph-max-bs 512 \
+    --disable-radix-cache --max-running-requests 512 --cuda-graph-max-bs 0 \
     --chunked-prefill-size 32768 --max-prefill-tokens 32768 --mem-fraction-static 0.82 \
     --attention-backend flashinfer --stream-interval 10 \
-    --decode-log-interval 1 \
+    --decode-log-interval 1 --disable-cuda-graph \
     > $SERVER_LOG 2>&1 &
 else
     PYTHONNOUSERSITE=1 python3 -m sglang.launch_server --model-path $MODEL --tokenizer-path $MODEL \
@@ -50,7 +50,7 @@ wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$S
 
 # If profiling is enabled, start profiling via SGLang HTTP API
 if [[ "${PROFILE:-}" == "1" ]]; then
-    SGLANG_TORCH_PROFILER_DIR="${SGLANG_TORCH_PROFILER_DIR:-/workspace/profiles}"
+    SGLANG_TORCH_PROFILER_DIR="${SGLANG_TORCH_PROFILER_DIR:-/workspace}"
     mkdir -p "$SGLANG_TORCH_PROFILER_DIR"
 fi
 
