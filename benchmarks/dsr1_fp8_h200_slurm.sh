@@ -19,6 +19,57 @@ SERVER_LOG=$(mktemp /tmp/server-XXXXXX.log)
 
 export TORCH_CUDA_ARCH_LIST="9.0"
 
+
+# === Monkey Patch for MoE Debug Logging ===
+cat << 'EOF' > /tmp/moe_debug_patch.py
+import torch
+
+def apply_moe_debug_patch():
+    import sglang.srt.layers.moe.fused_moe_triton.fused_moe as fused_moe_module
+    
+    original_fused_experts_impl = fused_moe_module.fused_experts_impl
+    
+    def patched_fused_experts_impl(
+        hidden_states,
+        w1,
+        w2,
+        topk_weights,
+        topk_ids,
+        *args,
+        **kwargs
+    ):
+        num_tokens = hidden_states.shape[0]
+        E = w1.shape[0]
+        topk = topk_ids.shape[1]
+        unique_experts = torch.unique(topk_ids)
+        num_activated = unique_experts.numel()
+        
+        print(f"[MoE Debug] batch_size={num_tokens}, "
+              f"top_k={topk}, "
+              f"total_experts={E}, "
+              f"activated_experts={num_activated}, "
+              f"expert_ids={unique_experts.tolist()}", 
+              flush=True)
+        
+        return original_fused_experts_impl(
+            hidden_states,
+            w1,
+            w2,
+            topk_weights,
+            topk_ids,
+            *args,
+            **kwargs
+        )
+    
+    fused_moe_module.fused_experts_impl = patched_fused_experts_impl
+    print("[MoE Debug] Patch applied successfully", flush=True)
+
+apply_moe_debug_patch()
+EOF
+
+# === Apply patch by injecting into sglang's startup ===
+PATCH_INJECTION="import sys; sys.path.insert(0, '/tmp'); import moe_debug_patch;"
+
 set -x
 if [[ $ISL -eq 1024 && $OSL -eq 1024 ]]; then
     PYTHONNOUSERSITE=1 python3 -m sglang.launch_server --model-path $MODEL --tokenizer-path $MODEL \
@@ -81,7 +132,7 @@ run_benchmark_serving \
   --input-len "$ISL" \
   --output-len "$OSL" \
   --random-range-ratio "$RANDOM_RANGE_RATIO" \
-  --num-prompts $((CONC * 2)) \
+  --num-prompts 10 \
   --max-concurrency "$CONC" \
   --result-filename "$RESULT_FILENAME" \
   --result-dir /workspace/ \
@@ -114,4 +165,11 @@ if [[ "${PROFILE:-}" == "1" ]]; then
   else
     echo "[PROFILE] No trace found under $SGLANG_TORCH_PROFILER_DIR" >&2
   fi
+fi
+
+# Archive server log to workspace for artifact upload
+if [[ -n "${SERVER_LOG:-}" ]]; then
+  DEST_SERVER_LOG="/workspace/server_${RESULT_FILENAME}.log"
+  echo "[INFO] Copying server log to ${DEST_SERVER_LOG}"
+  cp "$SERVER_LOG" "$DEST_SERVER_LOG" || true
 fi

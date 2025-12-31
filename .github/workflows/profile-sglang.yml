@@ -146,7 +146,7 @@ jobs:
         env:
           RUNNER_NAME: ${{ runner.name }}
           PROFILE: '1'
-          SGLANG_TORCH_PROFILER_DIR: /workspace/profiles
+          SGLANG_TORCH_PROFILER_DIR: /workspace/
         shell: bash
         run: |
           set -euo pipefail
@@ -210,6 +210,14 @@ jobs:
         with:
           name: profile_${{ env.RESULT_FILENAME }}_TP0_EXTEND
           path: ${{ steps.run.outputs.tp0_extend }}
+
+      - name: Upload server log as artifact
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: server_log_${{ env.RESULT_FILENAME }}
+          path: server_${{ env.RESULT_FILENAME }}.log
+          if-no-files-found: ignore
 
       - name: Checkout storage repo
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
