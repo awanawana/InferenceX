@@ -23,32 +23,75 @@ export TORCH_CUDA_ARCH_LIST="9.0"
 # === Monkey Patch for MoE Debug Logging ===
 # Create a directory for our patch
 PATCH_DIR=$(mktemp -d /tmp/moe_patch-XXXXXX)
+# Write MoE debug to its own file (per run)
+export MOE_DEBUG_LOG="/workspace/moe_debug_${RESULT_FILENAME}.tp0.log"
+# Only emit logs from TP rank 0
+export MOE_DEBUG_ONLY_RANK="0"
 
 # Create sitecustomize.py - Python automatically imports this at startup
 cat << 'EOF' > "$PATCH_DIR/sitecustomize.py"
-import sys
+import os
+import time
+import atexit
+import threading
 import builtins
 
 _original_import = builtins.__import__
-
 _patched = False
+
+# ---- Rank gating (log from ONE TP process only) ----
+def _get_rank() -> int:
+    for k in ("SGLANG_TP_RANK", "TP_RANK", "LOCAL_RANK", "RANK"):
+        v = os.environ.get(k)
+        if v is not None:
+            try:
+                return int(v)
+            except ValueError:
+                pass
+    return 0
+
+_RANK = _get_rank()
+_ONLY_RANK = int(os.environ.get("MOE_DEBUG_ONLY_RANK", "0"))
+_ENABLED = (_RANK == _ONLY_RANK)
+
+# ---- File logger ----
+_LOG_PATH = os.environ.get("MOE_DEBUG_LOG", "/tmp/moe_debug.tp0.log")
+_fh = None
+_lock = threading.Lock()
+
+def _log(msg: str) -> None:
+    if not _ENABLED:
+        return
+    global _fh
+    if _fh is None:
+        os.makedirs(os.path.dirname(_LOG_PATH), exist_ok=True)
+        _fh = open(_LOG_PATH, "a", buffering=1)  # line-buffered
+        atexit.register(lambda: _fh and _fh.close())
+    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+    with _lock:
+        _fh.write(f"{ts} [pid={os.getpid()} rank={_RANK}] {msg}\n")
+        _fh.flush()
 
 def _patching_import(name, globals=None, locals=None, fromlist=(), level=0):
     global _patched
     module = _original_import(name, globals, locals, fromlist, level)
-    
+
     # Patch after sglang's fused_moe module is loaded
     if not _patched and name == "sglang.srt.layers.moe.fused_moe_triton.fused_moe":
         _patched = True
         _apply_moe_debug_patch(module)
-    
+
     return module
 
 def _apply_moe_debug_patch(fused_moe_module):
+    # If not the chosen rank, do nothing (no wrapper, zero overhead)
+    if not _ENABLED:
+        return
+
     import torch
-    
+
     original_fused_experts_impl = fused_moe_module.fused_experts_impl
-    
+
     def patched_fused_experts_impl(
         hidden_states,
         w1,
@@ -59,18 +102,10 @@ def _apply_moe_debug_patch(fused_moe_module):
         **kwargs
     ):
         num_tokens = hidden_states.shape[0]
-        E = w1.shape[0]
         topk = topk_ids.shape[1]
-        unique_experts = torch.unique(topk_ids)
-        num_activated = unique_experts.numel()
-        
-        print(f"[MoE Debug] batch_size={num_tokens}, "
-              f"top_k={topk}, "
-              f"total_experts={E}, "
-              f"activated_experts={num_activated}, "
-              f"expert_ids={unique_experts.tolist()}", 
-              flush=True)
-        
+        num_activated = torch.unique(topk_ids).numel()
+
+        _log(f"batch_size={num_tokens} top_k={topk} activated_experts={num_activated}")
         return original_fused_experts_impl(
             hidden_states,
             w1,
@@ -80,13 +115,13 @@ def _apply_moe_debug_patch(fused_moe_module):
             *args,
             **kwargs
         )
-    
-    fused_moe_module.fused_experts_impl = patched_fused_experts_impl
-    print("[MoE Debug] Patch applied successfully", flush=True)
 
-# Install the patching import hook
+    fused_moe_module.fused_experts_impl = patched_fused_experts_impl
+    _log("Patch applied successfully")
+
+# Install the patching import hook (quiet; no stdout)
 builtins.__import__ = _patching_import
-print("[MoE Debug] Import hook installed", flush=True)
+_log("Import hook installed")
 EOF
 
 # Set PYTHONPATH so sitecustomize.py is found and loaded automatically
@@ -157,7 +192,7 @@ run_benchmark_serving \
   --input-len "$ISL" \
   --output-len "$OSL" \
   --random-range-ratio "$RANDOM_RANGE_RATIO" \
-  --num-prompts 10 \
+  --num-prompts $((CONC * 2)) \
   --max-concurrency "$CONC" \
   --result-filename "$RESULT_FILENAME" \
   --result-dir /workspace/ \
