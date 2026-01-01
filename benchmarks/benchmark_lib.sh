@@ -211,10 +211,15 @@ run_benchmark_serving() {
 
     # Clone benchmark serving repo
     local BENCH_SERVING_DIR=$(mktemp -d /tmp/bmk-XXXXXX)
-    git clone https://github.com/kimbochen/bench_serving.git "$BENCH_SERVING_DIR"
+    git clone https://github.com/oseltamivir/bench_serving.git "$BENCH_SERVING_DIR"
 
     # Run benchmark
     set -x
+    # Enable built-in profiling if requested via env PROFILE=1
+    local profile_flag=""
+    if [[ "${PROFILE:-}" == "1" ]]; then
+        profile_flag="--profile"
+    fi
     python3 "$BENCH_SERVING_DIR/benchmark_serving.py" \
         --model "$model" \
         --backend "$backend" \
@@ -227,6 +232,7 @@ run_benchmark_serving() {
         --max-concurrency "$max_concurrency" \
         --request-rate inf \
         --ignore-eos \
+        $profile_flag \
         --save-result \
         --percentile-metrics 'ttft,tpot,itl,e2el' \
         --result-dir "$result_dir" \

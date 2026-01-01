@@ -181,24 +181,8 @@ if [[ "${PROFILE:-}" == "1" ]]; then
 fi
 
 if [[ "${PROFILE:-}" == "1" ]]; then
-  echo "[PROFILE] Will start mid-run; dir=$SGLANG_TORCH_PROFILER_DIR"
-
-  # Wait until the run has ramped up (tune this)
-  #sleep "${PROFILE_DELAY_SECS:-60}"
-
-  # Start a SMALL bounded capture (this auto-stops; do NOT call stop_profile)
-  curl -sf -X POST "http://127.0.0.1:$PORT/start_profile" \
-    -H "Content-Type: application/json" \
-    -d "{
-      \"output_dir\": \"$SGLANG_TORCH_PROFILER_DIR\",
-      \"num_steps\": 5,
-      \"start_step\": 0,
-      \"activities\": [\"GPU\", \"CPU\"],
-      \"merge_profiles\": true,
-      \"profile_by_stage\": true,
-      \"record_shapes\": true
-    }" || true
-  marker "profiling start request sent"
+  echo "[PROFILE] Using benchmark_serving managed profiling (--profile); dir=$SGLANG_TORCH_PROFILER_DIR"
+  marker "profiling managed by benchmark_serving"
 fi
 
 run_benchmark_serving \
@@ -208,7 +192,7 @@ run_benchmark_serving \
   --input-len "$ISL" \
   --output-len "$OSL" \
   --random-range-ratio "$RANDOM_RANGE_RATIO" \
-  --num-prompts $((CONC * 2)) \
+  --num-prompts 1 \
   --max-concurrency "$CONC" \
   --result-filename "$RESULT_FILENAME" \
   --result-dir /workspace/ \
