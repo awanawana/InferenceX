@@ -172,7 +172,7 @@ source "$(dirname "$0")/benchmark_lib.sh"
 wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$SERVER_PID"
 marker "server ready"
 
-sleep 60
+sleep 20
 
 # If profiling is enabled, start profiling via SGLang HTTP API
 if [[ "${PROFILE:-}" == "1" ]]; then
@@ -226,11 +226,4 @@ if [[ "${PROFILE:-}" == "1" ]]; then
   else
     echo "[PROFILE] No trace found under $SGLANG_TORCH_PROFILER_DIR" >&2
   fi
-fi
-
-# Archive server log to workspace for artifact upload
-if [[ -n "${SERVER_LOG:-}" ]]; then
-  DEST_SERVER_LOG="/workspace/server_${RESULT_FILENAME}.log"
-  echo "[INFO] Copying server log to ${DEST_SERVER_LOG}"
-  cp "$SERVER_LOG" "$DEST_SERVER_LOG" || true
 fi
