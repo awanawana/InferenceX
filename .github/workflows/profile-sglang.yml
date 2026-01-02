@@ -7,6 +7,11 @@ on:
         description: "Exact CLI args for utils/matrix_logic/generate_sweep_configs.py"
         required: true
         type: string
+      moe-debug:
+        description: "Enable MoE debug patch and log (MOE_DEBUG_LOG)"
+        required: false
+        type: boolean
+        default: false
       ref:
         description: "Ref (branch/sha) to checkout"
         required: false
@@ -147,6 +152,8 @@ jobs:
           RUNNER_NAME: ${{ runner.name }}
           PROFILE: '1'
           SGLANG_TORCH_PROFILER_DIR: /workspace/
+          MOE_DEBUG: ${{ github.event_name == 'workflow_dispatch' && inputs.moe-debug && '1' || '' }}
+          MOE_DEBUG_LOG: ${{ (github.event_name == 'workflow_dispatch' && inputs.moe-debug) && '/workspace/moe_debug.tp0.log' || '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -212,7 +219,7 @@ jobs:
           path: ${{ steps.run.outputs.tp0_extend }}
 
       - name: Upload MoE debug log as artifact
-        if: always()
+        if: ${{ env.MOE_DEBUG == '1' }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: moe_debug_${{ env.RESULT_FILENAME }}

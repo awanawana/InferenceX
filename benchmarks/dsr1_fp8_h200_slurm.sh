@@ -17,17 +17,10 @@ SERVER_LOG=$(mktemp /tmp/server-XXXXXX.log)
 
 export TORCH_CUDA_ARCH_LIST="9.0"
 
-# === Monkey Patch for MoE Debug Logging ===
+# === Monkey Patch for MoE Debug Logging (optional) ===
+# Enable by setting MOE_DEBUG=1. When enabled, we set MOE_DEBUG_LOG (if not provided)
 # Create a directory for our patch
 PATCH_DIR=$(mktemp -d /tmp/moe_patch-XXXXXX)
-# Write MoE debug to its own file (per run)
-export MOE_DEBUG_LOG="/workspace/moe_debug.tp0.log"
-# Only emit logs from TP rank 0
-export MOE_DEBUG_ONLY_RANK="0"
-
-pip3 install --no-deps --target "$PATCH_DIR" sentencepiece
-
-# Create sitecustomize.py - Python automatically imports this at startup
 cat << 'EOF' > "$PATCH_DIR/sitecustomize.py"
 import os
 import time
@@ -121,33 +114,49 @@ def _apply_moe_debug_patch(fused_moe_module):
     fused_moe_module.fused_experts_impl = patched_fused_experts_impl
     _log("Patch applied successfully")
 
-# Install the patching import hook (quiet; no stdout)
-builtins.__import__ = _patching_import
-_log("Import hook installed")
+  # Install the patching import hook (quiet; no stdout)
+  builtins.__import__ = _patching_import
+  _log("Import hook installed")
 EOF
 
-# Set PYTHONPATH so sitecustomize.py is found and loaded automatically
-export PYTHONPATH="$PATCH_DIR:${PYTHONPATH:-}"
+# and inject a sitecustomize.py that patches fused_moe to log activations.
+if [[ "${MOE_DEBUG:-}" == "1" ]]; then
+    # Write MoE debug to its own file (per run) if not already set
+    export MOE_DEBUG_LOG="${MOE_DEBUG_LOG:-/workspace/moe_debug.tp0.log}"
+    # Only emit logs from TP rank 0
+    export MOE_DEBUG_ONLY_RANK="${MOE_DEBUG_ONLY_RANK:-0}"
 
-echo "[MoE Debug] Patch directory: $PATCH_DIR"
-echo "[MoE Debug] PYTHONPATH: $PYTHONPATH"
+    pip3 install --no-deps --target "$PATCH_DIR" sentencepiece
 
-ts() { date +"%Y-%m-%d %H:%M:%S%z"; }
+    # Create sitecustomize.py - Python automatically imports this at startup
+    # Set PYTHONPATH so sitecustomize.py is found and loaded automatically
+    export PYTHONPATH="$PATCH_DIR:${PYTHONPATH:-}"
 
-marker() {
-  local msg="$1"
-  local line="[$(ts)] [MARK] $msg"
-  echo "$line" >> "$SERVER_LOG"
-  [[ -n "${MOE_DEBUG_LOG:-}" ]] && echo "$line" >> "$MOE_DEBUG_LOG"
-  echo "$line" >> "/workspace/markers_${RESULT_FILENAME}.log"
-}
+    echo "[MoE Debug] Patch directory: $PATCH_DIR"
+    echo "[MoE Debug] PYTHONPATH: $PYTHONPATH"
+    ts() { date +"%Y-%m-%d %H:%M:%S%z"; }
+
+    ts() { date +"%Y-%m-%d %H:%M:%S%z"; }
+
+    marker() {
+    local msg="$1"
+    local line="[$(ts)] [MARK] $msg"
+    echo "$line" >> "$SERVER_LOG"
+    [[ -n "${MOE_DEBUG_LOG:-}" ]] && echo "$line" >> "$MOE_DEBUG_LOG"
+    echo "$line" >> "/workspace/markers_${RESULT_FILENAME}.log"
+    }
+else
+    echo "[MoE Debug] Disabled (set MOE_DEBUG=1 to enable)"
+fi
+
+
 
 set -x
 if [[ $ISL -eq 1024 && $OSL -eq 1024 ]]; then
     PYTHONNOUSERSITE=1 python3 -m sglang.launch_server --model-path $MODEL --tokenizer-path $MODEL \
     --host 0.0.0.0 --port $PORT --trust-remote-code \
     --tensor-parallel-size=$TP --data-parallel-size=1 \
-    --disable-radix-cache --max-running-requests 512 --cuda-graph-max-bs 256 \
+    --disable-radix-cache --max-running-requests 512 --cuda-graph-max-bs 512 \
     --chunked-prefill-size 32768 --max-prefill-tokens 32768 --mem-fraction-static 0.82 \
     --attention-backend flashinfer --stream-interval 10 \
     --decode-log-interval 1 \
@@ -170,7 +179,6 @@ source "$(dirname "$0")/benchmark_lib.sh"
 
 # Wait for server to be ready
 wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$SERVER_PID"
-marker "server ready"
 
 sleep 20
 
@@ -182,7 +190,6 @@ fi
 
 if [[ "${PROFILE:-}" == "1" ]]; then
   echo "[PROFILE] Using benchmark_serving managed profiling (--profile); dir=$SGLANG_TORCH_PROFILER_DIR"
-  marker "profiling managed by benchmark_serving"
 fi
 
 run_benchmark_serving \
