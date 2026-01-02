@@ -25,8 +25,13 @@ if [[ "$IS_MULTINODE" == "true" ]]; then
     JOB_ID=$(squeue -u $USER --noheader --format='%i')
     LOG_FILE="$SGL_SLURM_JOBS_PATH/slurm_job-${JOB_ID}.out"
 
-    # Wait for log file to appear
+    # Wait for log file to appear (also check job is still alive)
     while [ ! -f "$LOG_FILE" ]; do
+        if ! squeue -u "$USER" --noheader --format='%i' | grep -q "$JOB_ID"; then
+            echo "ERROR: Job $JOB_ID failed before creating log file"
+            scontrol show job "$JOB_ID"
+            exit 1
+        fi
         sleep 5
     done
 
