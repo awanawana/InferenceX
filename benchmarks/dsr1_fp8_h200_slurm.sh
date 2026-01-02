@@ -16,6 +16,8 @@ PORT=$(( 8888 + $PORT_OFFSET ))
 SERVER_LOG=$(mktemp /tmp/server-XXXXXX.log)
 
 export TORCH_CUDA_ARCH_LIST="9.0"
+export PROFILED="0"
+export MOE_DEBUG="1"
 
 # === Monkey Patch for MoE Debug Logging (optional) ===
 # Enable by setting MOE_DEBUG=1. When enabled, we set MOE_DEBUG_LOG (if not provided)
@@ -196,7 +198,7 @@ run_benchmark_serving \
   --input-len "$ISL" \
   --output-len "$OSL" \
   --random-range-ratio "$RANDOM_RANGE_RATIO" \
-  --num-prompts 4 \
+  --num-prompts $(( CONC * 10 )) \
   --max-concurrency "$CONC" \
   --result-filename "$RESULT_FILENAME" \
   --result-dir /workspace/ \
