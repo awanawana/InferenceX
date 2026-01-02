@@ -21,7 +21,7 @@ export TORCH_CUDA_ARCH_LIST="9.0"
 # Create a directory for our patch
 PATCH_DIR=$(mktemp -d /tmp/moe_patch-XXXXXX)
 # Write MoE debug to its own file (per run)
-export MOE_DEBUG_LOG="/workspace/moe_debug_${RESULT_FILENAME}.tp0.log"
+export MOE_DEBUG_LOG="/workspace/moe_debug.tp0.log"
 # Only emit logs from TP rank 0
 export MOE_DEBUG_ONLY_RANK="0"
 

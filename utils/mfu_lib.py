@@ -1875,7 +1875,6 @@ def print_summary(gemm_infos: List[GemmInfo], layer_times: Dict[str, Any], gpu_s
             print(f"                 Note: MBU>100% is physically impossible and indicates dimension inference errors.")
         else:
             print(f"                 MFU: {dc_avg_mfu:.1f}%, MBU: {dc_avg_mbu:.1f}%, BW: {dc_avg_bw:.0f} GB/s")
-            print(f"                 Note: Low MBU in decode is expected for small batch sizes.")
     # Top 10 by MFU
     print("\n" + "-"*80)
     print("Top 10 GEMMs by MFU:")
