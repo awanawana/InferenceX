@@ -30,6 +30,8 @@ if [[ "$IS_MULTINODE" == "true" ]]; then
         sleep 5
     done
 
+    set +x
+
     # Poll for job completion in background
     (
         while squeue -u $USER --noheader --format='%i' | grep -q "$JOB_ID"; do
@@ -42,6 +44,8 @@ if [[ "$IS_MULTINODE" == "true" ]]; then
     tail -f -n+1 "$LOG_FILE" --pid=$POLL_PID
 
     wait $POLL_PID
+
+    set -x
 
     # FIXME: The below is bad and is a result of the indirection of the ways in which
     # Dynamo jobs are launched. In a follow-up PR, the location of the result file should not
