@@ -48,8 +48,8 @@ if [[ "$IS_MULTINODE" == "true" ]]; then
     ) &
     POLL_PID=$!
 
-    # Tail the log file until job completes
-    tail -f -n+1 "$LOG_FILE" --pid=$POLL_PID
+    # Tail the log file until job completes (-F follows by name, polls instead of inotify for NFS)
+    tail -F -s 2 -n+1 "$LOG_FILE" --pid=$POLL_PID 2>/dev/null
 
     wait $POLL_PID
 
