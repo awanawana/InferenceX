@@ -62,10 +62,10 @@ def _log(msg: str) -> None:
         os.makedirs(os.path.dirname(_LOG_PATH), exist_ok=True)
         _fh = open(_LOG_PATH, "a", buffering=1)  # line-buffered
         atexit.register(lambda: _fh and _fh.close())
-    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+    ts = time.time()
     with _lock:
         _seq += 1
-        _fh.write(f"seq={_seq} {ts} [pid={os.getpid()} rank={_RANK}] {msg}\n")
+        _fh.write(f"seq={_seq} ts={ts:.6f} [pid={os.getpid()} rank={_RANK}] {msg}\n")
         _fh.flush()
 
 def _patching_import(name, globals=None, locals=None, fromlist=(), level=0):
