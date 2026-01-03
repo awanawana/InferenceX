@@ -115,9 +115,9 @@ def _apply_moe_debug_patch(fused_moe_module):
     fused_moe_module.fused_experts_impl = patched_fused_experts_impl
     _log("Patch applied successfully")
 
-  # Install the patching import hook (quiet; no stdout)
-  builtins.__import__ = _patching_import
-  _log("Import hook installed")
+# Install the patching import hook (quiet; no stdout)
+builtins.__import__ = _patching_import
+_log("Import hook installed")
 EOF
 
 # and inject a sitecustomize.py that patches fused_moe to log activations.

@@ -118,6 +118,8 @@ jobs:
       CONC: ${{ matrix.config.conc }}
       SPEC_DECODING: ${{ matrix.config.spec-decoding }}
       DISAGG: ${{ matrix.config.disagg }}
+      MOE_DEBUG: ${{ (github.event_name == 'push' && '1') || ((github.event_name == 'workflow_dispatch' && inputs.moe-debug) && '1') || '' }}
+      MOE_DEBUG_LOG: ${{ ((github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && inputs.moe-debug)) && '/workspace/moe_debug.tp0.log' || '' }}
     steps:
       - name: Resource cleanup
         run: |
@@ -152,8 +154,6 @@ jobs:
           RUNNER_NAME: ${{ runner.name }}
           PROFILE: '0'
           SGLANG_TORCH_PROFILER_DIR: /workspace/
-          MOE_DEBUG: ${{ github.event_name == 'workflow_dispatch' && inputs.moe-debug && '1' || '' }}
-          MOE_DEBUG_LOG: ${{ (github.event_name == 'workflow_dispatch' && inputs.moe-debug) && '/workspace/moe_debug.tp0.log' || '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -189,7 +189,6 @@ jobs:
             fi
           else
             echo "Profile trace not found: $trace_path" >&2
-            exit 1
           fi
 
       - name: Process result (json -> agg)
@@ -199,10 +198,12 @@ jobs:
           python3 utils/process_result.py
 
       - name: Upload profile as artifact
+        if: ${{ steps.run.outputs.trace != '' }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: profile_${{ env.RESULT_FILENAME }}
           path: profile_${{ env.RESULT_FILENAME }}.trace.json.gz
+          if-no-files-found: ignore
 
       - name: Upload TP-0-DECODE trace as artifact
         if: ${{ steps.run.outputs.tp0_decode != '' }}
@@ -210,6 +211,7 @@ jobs:
         with:
           name: profile_${{ env.RESULT_FILENAME }}_TP0_DECODE
           path: ${{ steps.run.outputs.tp0_decode }}
+          if-no-files-found: ignore
 
       - name: Upload TP-0-EXTEND trace as artifact
         if: ${{ steps.run.outputs.tp0_extend != '' }}
@@ -217,6 +219,7 @@ jobs:
         with:
           name: profile_${{ env.RESULT_FILENAME }}_TP0_EXTEND
           path: ${{ steps.run.outputs.tp0_extend }}
+          if-no-files-found: ignore
 
       - name: Upload MoE debug log as artifact
         if: ${{ env.MOE_DEBUG == '1' }}
@@ -227,6 +230,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Checkout storage repo
+        if: ${{ steps.run.outputs.trace != '' }}
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           repository: Oseltamivir/profiler-storage
@@ -236,6 +240,7 @@ jobs:
           fetch-depth: 0
 
       - name: Push profile to storage repo
+        if: ${{ steps.run.outputs.trace != '' }}
         id: push
         env:
           TRACE_LOCAL: ${{ steps.run.outputs.trace }}
@@ -269,6 +274,7 @@ jobs:
           echo "relay_url=$RELAY_URL" >> "$GITHUB_OUTPUT"
 
       - name: Print Perfetto link (relay)
+        if: ${{ steps.push.outputs.relay_url != '' }}
         env:
           RELAY_URL: ${{ steps.push.outputs.relay_url }}
           RAW_URL: ${{ steps.push.outputs.raw_url }}
