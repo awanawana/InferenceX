@@ -118,7 +118,7 @@ jobs:
       CONC: ${{ matrix.config.conc }}
       SPEC_DECODING: ${{ matrix.config.spec-decoding }}
       DISAGG: ${{ matrix.config.disagg }}
-      MOE_DEBUG: ${{ (github.event_name == 'push' && '1') || ((github.event_name == 'workflow_dispatch' && inputs.moe-debug) && '1') || '' }}
+      MOE_DEBUG: '0'
       MOE_DEBUG_LOG: ${{ ((github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && inputs.moe-debug)) && '/workspace/moe_debug.tp0.log' || '' }}
     steps:
       - name: Resource cleanup
@@ -152,7 +152,7 @@ jobs:
         id: run
         env:
           RUNNER_NAME: ${{ runner.name }}
-          PROFILE: '0'
+          PROFILE: '1'
           SGLANG_TORCH_PROFILER_DIR: /workspace/
         shell: bash
         run: |
