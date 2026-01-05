@@ -75,7 +75,6 @@ fi
 
 set -x
 echo $GITHUB_WORKSPACE
-git clone https://github.com/kimbochen/bench_serving.git
 git clone https://github.com/kimbochen/bench_serving.git $GITHUB_WORKSPACE/bench_serving
 
 sleep 5
