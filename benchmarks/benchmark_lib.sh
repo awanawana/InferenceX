@@ -143,6 +143,17 @@ run_benchmark_serving() {
             return 1
         fi
     done
+    
+    # Check if git is installed, install if missing
+    if ! command -v git &> /dev/null; then
+        echo "git not found, installing..."
+        if command -v apt-get &> /dev/null; then
+            sudo apt-get update && sudo apt-get install -y git
+        else
+            echo "Error: Could not install git. Package manager not found."
+            return 1
+        fi
+    fi
 
     local BENCH_SERVING_DIR
     BENCH_SERVING_DIR=$(mktemp -d /tmp/bmk-XXXXXX)

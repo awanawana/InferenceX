@@ -2,18 +2,19 @@
 
 # === Required Env Vars ===
 # MODEL
+# PORT_OFFSET
 # TP
 # CONC
 # ISL
 # OSL
+# MAX_MODEL_LEN
 # RANDOM_RANGE_RATIO
 # RESULT_FILENAME
-# PORT_OFFSET
+# NUM_PROMPTS
 
 echo "JOB $SLURM_JOB_ID running on $SLURMD_NODENAME"
 
-hf download $MODEL
-pip install datasets pandas
+nvidia-smi
 
 # Calculate max-model-len based on ISL and OSL
 if [ "$ISL" = "1024" ] && [ "$OSL" = "1024" ]; then
@@ -24,8 +25,9 @@ else
     CALCULATED_MAX_MODEL_LEN=${MAX_MODEL_LEN:-10240}  
 fi
 
-# Create config.yaml
 cat > config.yaml << EOF
+kv-cache-dtype: fp8
+compilation-config: '{"pass_config":{"fuse_allreduce_rms":true,"eliminate_noops":true}}'
 async-scheduling: true
 no-enable-prefix-caching: true
 max-cudagraph-capture-size: 2048
@@ -33,19 +35,17 @@ max-num-batched-tokens: 8192
 max-model-len: $CALCULATED_MAX_MODEL_LEN
 EOF
 
-SERVER_LOG=$(mktemp /tmp/server-XXXXXX.log)
-export TORCH_CUDA_ARCH_LIST="9.0"
-PORT=$(( 8888 + $PORT_OFFSET ))
-MODEL_NAME=${MODEL##*/}
-export VLLM_MXFP4_USE_MARLIN=1
+export TORCH_CUDA_ARCH_LIST="10.0"
+export PYTHONNOUSERSITE=1
+export VLLM_USE_FLASHINFER_MOE_MXFP4_MXFP8=1
 
-PYTHONNOUSERSITE=1 vllm serve $MODEL --host 0.0.0.0 --port $PORT \
- --config config.yaml \
- --gpu-memory-utilization 0.9 \
- --tensor-parallel-size $TP \
- --max-num-seqs $CONC  \
- --disable-log-requests \
- --served-model-name $MODEL_NAME > $SERVER_LOG 2>&1 &
+SERVER_LOG=$(mktemp /tmp/server-XXXXXX.log)
+PORT=$(( 8888 + $PORT_OFFSET ))
+
+set -x
+vllm serve $MODEL --host 0.0.0.0 --port $PORT --config config.yaml \
+--gpu-memory-utilization 0.9 --tensor-parallel-size $TP --max-num-seqs 512 \
+> $SERVER_LOG 2>&1 &
 
 SERVER_PID=$!
 
@@ -55,22 +55,16 @@ source "$(dirname "$0")/benchmark_lib.sh"
 # Wait for server to be ready
 wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$SERVER_PID"
 
+pip install -q datasets pandas
+
 run_benchmark_serving \
-    --model "$MODEL_NAME" \
-    --tokenizer "$MODEL" \
+    --model "$MODEL" \
     --port "$PORT" \
     --backend vllm \
     --input-len "$ISL" \
     --output-len "$OSL" \
     --random-range-ratio "$RANDOM_RANGE_RATIO" \
-    --num-prompts $(( $CONC * 10 )) \
+    --num-prompts $(( CONC * 10 )) \
     --max-concurrency "$CONC" \
     --result-filename "$RESULT_FILENAME" \
     --result-dir /workspace/
-
-# After throughput, run evaluation only if RUN_EVAL is true
-if [ "${RUN_EVAL}" = "true" ]; then
-    run_eval --framework lm-eval --port "$PORT" --concurrent-requests $(( $CONC * 2 ))
-    append_lm_eval_summary
-fi
-set +x

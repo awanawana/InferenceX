@@ -24,6 +24,7 @@ SERVER_LOG=$(mktemp /tmp/server-XXXXXX.log)
 export TORCH_CUDA_ARCH_LIST="9.0"
 PORT=${PORT:-8888}
 MODEL_NAME=${MODEL##*/}
+export VLLM_MXFP4_USE_MARLIN=1
 
 set -x
 PYTHONNOUSERSITE=1 vllm serve $MODEL --host=0.0.0.0 --port=$PORT \
