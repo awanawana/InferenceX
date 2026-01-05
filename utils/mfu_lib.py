@@ -239,15 +239,15 @@ GPU_SPECS: Dict[str, GPUSpecs] = {
         l2_cache_mb=50.0,
         nvlink_bw_gb_s=900.0,
     ),
-    "A100": GPUSpecs(
-        name="NVIDIA A100 SXM",
-        fp16_tflops=312.0,
-        fp8_tflops=0.0,
+        "MI325X": GPUSpecs(
+        name="AMD MI325X",
+        fp16_tflops=1300.0,
+        fp8_tflops=2600.0,
         fp4_tflops=0.0,
-        memory_bw_tb_s=2.0,
-        num_sms=108,
-        l2_cache_mb=40.0,
-        nvlink_bw_gb_s=600.0,
+        memory_bw_tb_s=6.0,
+        num_sms=304,
+        l2_cache_mb=256.0,
+        nvlink_bw_gb_s=896.0,
     ),
 }
 
