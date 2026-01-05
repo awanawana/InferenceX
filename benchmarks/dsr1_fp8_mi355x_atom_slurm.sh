@@ -15,6 +15,8 @@
 SERVER_LOG=$(mktemp /tmp/server-XXXXXX.log)
 PORT=$(( 8888 + $PORT_OFFSET ))
 
+export OMP_NUM_THREADS=1
+
 # Calculate max-model-len based on ISL and OSL
 if [ "$ISL" = "1024" ] && [ "$OSL" = "1024" ]; then
     CALCULATED_MAX_MODEL_LEN=""
