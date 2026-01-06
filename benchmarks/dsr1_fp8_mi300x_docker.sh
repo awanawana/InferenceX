@@ -27,6 +27,13 @@ export SGLANG_USE_AITER=1
 
 SERVER_LOG=$(mktemp /tmp/server-XXXXXX.log)
 
+# If profiling is requested, set profiler output dir BEFORE launching server
+if [[ "${PROFILE:-}" == "1" ]]; then
+  export SGLANG_TORCH_PROFILER_DIR="${SGLANG_TORCH_PROFILER_DIR:-/workspace}"
+  mkdir -p "$SGLANG_TORCH_PROFILER_DIR"
+  echo "[PROFILE] SGLANG_TORCH_PROFILER_DIR=$SGLANG_TORCH_PROFILER_DIR"
+fi
+
 # === Monkey Patch for MoE Debug Logging (optional) ===
 # Enable by setting MOE_DEBUG=1. When enabled, we set MOE_DEBUG_LOG (if not provided)
 PATCH_DIR=$(mktemp -d /tmp/moe_patch-XXXXXX)
@@ -173,7 +180,7 @@ run_benchmark_serving \
     --input-len "$ISL" \
     --output-len "$OSL" \
     --random-range-ratio "$RANDOM_RANGE_RATIO" \
-    --num-prompts $(( $CONC * 10 )) \
+    --num-prompts $(( $CONC * 2 )) \
     --max-concurrency "$CONC" \
     --result-filename "$RESULT_FILENAME" \
     --result-dir /workspace/ \
