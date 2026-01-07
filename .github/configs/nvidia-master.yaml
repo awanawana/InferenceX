@@ -74,7 +74,7 @@ dsr1-fp4-b200-trt:
     - { tp: 8, conc-start: 4, conc-end: 32 }
     - { tp: 8, ep: 8, dp-attn: true, conc-start: 64, conc-end: 256 }
 
-dsr1-fp4-b200-trt:
+dsr1-fp4-b200-trt-mtp:
   image: nvcr.io#nvidia/tensorrt-llm/release:1.1.0rc2.post2
   model: nvidia/DeepSeek-R1-0528-FP4-V2
   model-prefix: dsr1
@@ -174,7 +174,7 @@ dsr1-fp8-b200-trt:
     # If CONC > 64, then DP_ATTN=true
     - { tp: 8, ep: 8, conc-start: 4, conc-end: 64 }
 
-dsr1-fp8-b200-trt:
+dsr1-fp8-b200-trt-mtp:
   image: nvcr.io#nvidia/tensorrt-llm/release:1.1.0rc2.post2
   model: deepseek-ai/DeepSeek-R1-0528
   model-prefix: dsr1
