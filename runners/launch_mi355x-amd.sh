@@ -125,30 +125,13 @@ PY
 
     sudo rm -rf "$SGL_SLURM_JOBS_PATH/logs" 2>/dev/null || true
 
-set -x
-docker run --rm --ipc=host --shm-size=16g --network=host --name=$server_name \
---privileged --cap-add=CAP_SYS_ADMIN --device=/dev/kfd --device=/dev/dri --device=/dev/mem \
---cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
--v $HF_HUB_CACHE_MOUNT:$HF_HUB_CACHE \
--v $GITHUB_WORKSPACE:/workspace/ -w /workspace/ \
--e HF_TOKEN -e HF_HUB_CACHE -e MODEL -e TP -e CONC -e MAX_MODEL_LEN -e PORT=$PORT \
--e ISL -e OSL -e PYTHONPYCACHEPREFIX=/tmp/pycache/ -e RANDOM_RANGE_RATIO -e RESULT_FILENAME  \
---entrypoint=/bin/bash \
-$IMAGE \
-benchmarks/"${EXP_NAME%%_*}_${PRECISION}_mi355x_docker.sh"
+else
+
+    export HF_HUB_CACHE_MOUNT="/hf-hub-cache"
+    export PORT_OFFSET=${USER: -1}
 
     PARTITION="compute"
     SQUASH_FILE="/squash/$(echo "$IMAGE" | sed 's/[\/:@#]/_/g').sqsh"
-
-    if [[ "$MODEL" == "amd/DeepSeek-R1-0528-MXFP4-Preview" || "$MODEL" == "deepseek-ai/DeepSeek-R1-0528" ]]; then
-        if [[ "$OSL" == "8192" ]]; then
-            export NUM_PROMPTS=$(( CONC * 20 ))
-        else
-            export NUM_PROMPTS=$(( CONC * 50 ))
-        fi
-    else
-        export NUM_PROMPTS=$(( CONC * 10 ))
-    fi
 
     export ENROOT_RUNTIME_PATH=/tmp
 
