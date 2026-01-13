@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 
-# === Required Env Vars ===
-# MODEL
-# PORT_OFFSET
-# TP
-# CONC
-# ISL
-# OSL
-# RANDOM_RANGE_RATIO
-# RESULT_FILENAME
-# EP_SIZE
+# Source benchmark utilities early
+source "$(dirname "$0")/benchmark_lib.sh"
+
+check_env_vars \
+    MODEL \
+    PORT_OFFSET \
+    TP \
+    CONC \
+    ISL \
+    OSL \
+    RANDOM_RANGE_RATIO \
+    RESULT_FILENAME \
+    EP_SIZE
 
 echo "JOB $SLURM_JOB_ID running on $SLURMD_NODENAME"
 

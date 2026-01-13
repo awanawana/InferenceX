@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 
-# === Required Env Vars ===
-# MODEL
-# PORT
-# TP
-# CONC
-# ISL
-# OSL
-# RANDOM_RANGE_RATIO
-# RESULT_FILENAME
-# EP_SIZE
+# Source benchmark utilities early
+source "$(dirname "$0")/benchmark_lib.sh"
+
+check_env_vars \
+    MODEL \
+    PORT \
+    TP \
+    CONC \
+    ISL \
+    OSL \
+    RANDOM_RANGE_RATIO \
+    RESULT_FILENAME \
+    EP_SIZE \
 
 nvidia-smi
 
@@ -55,7 +58,3 @@ run_benchmark_serving \
     --max-concurrency "$CONC" \
     --result-filename "$RESULT_FILENAME" \
     --result-dir /workspace/
-
-cat $SERVER_LOG
-  
-

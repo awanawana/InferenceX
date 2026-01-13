@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
 
-# === Required Env Vars === 
-# MODEL
-# PORT
-# TP
-# EP_SIZE
-# DP_ATTENTION
-# CONC
-# ISL
-# OSL
-# MAX_MODEL_LEN
-# RANDOM_RANGE_RATIO
-# RESULT_FILENAME
+# Source benchmark utilities early
+source "$(dirname "$0")/benchmark_lib.sh"
+
+check_env_vars \
+    MODEL \
+    PORT \
+    TP \
+    EP_SIZE \
+    DP_ATTENTION \
+    CONC \
+    ISL \
+    OSL \
+    MAX_MODEL_LEN \
+    RANDOM_RANGE_RATIO \
+    RESULT_FILENAME
 
 SERVER_LOG=$(mktemp /tmp/server-XXXXXX.log)
 
@@ -80,7 +83,7 @@ run_benchmark_serving \
     --input-len "$ISL" \
     --output-len "$OSL" \
     --random-range-ratio "$RANDOM_RANGE_RATIO" \
-    --num-prompts $(( CONC * 10 )) \
+    --num-prompts $(( $CONC * 10 )) \
     --max-concurrency "$CONC" \
     --result-filename "$RESULT_FILENAME" \
     --result-dir /workspace/

@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 
-# === Required Env Vars ===
-# MODEL
-# PORT
-# TP
-# CONC
-# ISL
-# OSL
-# RANDOM_RANGE_RATIO
-# RESULT_FILENAME
-# PORT_OFFSET
+# Source benchmark utilities early
+source "$(dirname "$0")/benchmark_lib.sh"
+
+check_env_vars \
+    MODEL \
+    TP \
+    CONC \
+    ISL \
+    OSL \
+    RANDOM_RANGE_RATIO \
+    RESULT_FILENAME \
+    PORT_OFFSET
 
 export SGLANG_USE_AITER=1
 export ROCM_QUICK_REDUCE_QUANTIZATION=INT4
@@ -49,7 +51,7 @@ run_benchmark_serving \
     --input-len "$ISL" \
     --output-len "$OSL" \
     --random-range-ratio "$RANDOM_RANGE_RATIO" \
-    --num-prompts $(( CONC * 10 )) \
+    --num-prompts $(( $CONC * 10 )) \
     --max-concurrency "$CONC" \
     --result-filename "$RESULT_FILENAME" \
     --result-dir /workspace/
