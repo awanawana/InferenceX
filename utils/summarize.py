@@ -36,6 +36,7 @@ DECODE_GPUS = "Decode GPUs"
 
 # Eval constants
 TASK = "Task"
+SCORE = "Score"
 EM_STRICT = "EM Strict"
 EM_FLEXIBLE = "EM Flexible"
 N_EFF = "N (eff)"
