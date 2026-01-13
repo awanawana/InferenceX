@@ -165,6 +165,8 @@
 
 - config-keys:
     - dsr1-fp8-mi355x-atom
+    - dsr1-fp4-mi355x-atom
+    - gptoss-fp4-mi355x-atom
   description:
-    - Add internal AMD ATOM inference engine for DeepSeek R1 Mi355X
+    - Add internal AMD ATOM inference engine for DeepSeek R1 FP8, FP4 and GPTOSS FP4 Mi355X
   pr-link: https://github.com/InferenceMAX/InferenceMAX/pull/383
