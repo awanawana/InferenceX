@@ -44,6 +44,7 @@ class RequestFuncOutput:
     tpot: float = 0.0  # avg next-token latencies
     prompt_len: int = 0
     error: str = ""
+    start_time: float = 0.0  # Request start time for peak metrics
 
 
 async def async_request_tgi(
@@ -73,6 +74,7 @@ async def async_request_tgi(
 
         ttft = 0.0
         st = time.perf_counter()
+        output.start_time = st
         most_recent_timestamp = st
         try:
             async with session.post(url=api_url, json=payload) as response:
@@ -144,6 +146,7 @@ async def async_request_trt_llm(
 
         ttft = 0.0
         st = time.perf_counter()
+        output.start_time = st
         most_recent_timestamp = st
         try:
             async with session.post(url=api_url, json=payload) as response:
@@ -210,6 +213,7 @@ async def async_request_deepspeed_mii(
         output.ttft = 0
 
         st = time.perf_counter()
+        output.start_time = st
         try:
             async with session.post(url=request_func_input.api_url,
                                     json=payload) as response:
@@ -234,14 +238,19 @@ async def async_request_deepspeed_mii(
 async def async_request_openai_completions(
     request_func_input: RequestFuncInput,
     pbar: Optional[tqdm] = None,
+    session: Optional[aiohttp.ClientSession] = None,
 ) -> RequestFuncOutput:
     api_url = request_func_input.api_url
     assert api_url.endswith(
         ("completions", "profile")
     ), "OpenAI Completions API URL must end with 'completions' or 'profile'."
 
-    async with aiohttp.ClientSession(trust_env=True,
-                                     timeout=AIOHTTP_TIMEOUT) as session:
+    # Create session if not provided
+    own_session = session is None
+    if own_session:
+        session = aiohttp.ClientSession(trust_env=True, timeout=AIOHTTP_TIMEOUT)
+
+    try:
         payload = {
             "model": request_func_input.model_name \
                 if request_func_input.model_name else request_func_input.model,
@@ -268,6 +277,7 @@ async def async_request_openai_completions(
 
         generated_text = ""
         st = time.perf_counter()
+        output.start_time = st
         most_recent_timestamp = st
         try:
             async with session.post(url=api_url, json=payload,
@@ -324,6 +334,9 @@ async def async_request_openai_completions(
             output.success = False
             exc_info = sys.exc_info()
             output.error = "".join(traceback.format_exception(*exc_info))
+    finally:
+        if own_session:
+            await session.close()
 
     if pbar:
         pbar.update(1)
@@ -333,14 +346,19 @@ async def async_request_openai_completions(
 async def async_request_openai_chat_completions(
     request_func_input: RequestFuncInput,
     pbar: Optional[tqdm] = None,
+    session: Optional[aiohttp.ClientSession] = None,
 ) -> RequestFuncOutput:
     api_url = request_func_input.api_url
     assert api_url.endswith(
         "chat/completions"
     ), "OpenAI Chat Completions API URL must end with 'chat/completions'."
 
-    async with aiohttp.ClientSession(trust_env=True,
-                                     timeout=AIOHTTP_TIMEOUT) as session:
+    # Create session if not provided
+    own_session = session is None
+    if own_session:
+        session = aiohttp.ClientSession(trust_env=True, timeout=AIOHTTP_TIMEOUT)
+
+    try:
         content = [{"type": "text", "text": request_func_input.prompt}]
         if request_func_input.multi_modal_content:
             content.append(request_func_input.multi_modal_content)
@@ -375,6 +393,7 @@ async def async_request_openai_chat_completions(
         generated_text = ""
         ttft = 0.0
         st = time.perf_counter()
+        output.start_time = st
         most_recent_timestamp = st
         try:
             async with session.post(url=api_url, json=payload,
@@ -420,6 +439,9 @@ async def async_request_openai_chat_completions(
             output.success = False
             exc_info = sys.exc_info()
             output.error = "".join(traceback.format_exception(*exc_info))
+    finally:
+        if own_session:
+            await session.close()
 
     if pbar:
         pbar.update(1)

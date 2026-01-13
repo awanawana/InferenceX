@@ -26,6 +26,7 @@ On the client side, run:
 import argparse
 import asyncio
 import base64
+import contextlib
 import gc
 import io
 import json
@@ -89,6 +90,281 @@ class BenchmarkMetrics:
     median_e2el_ms: float
     std_e2el_ms: float
     percentiles_e2el_ms: List[Tuple[float, float]]
+    # Peak metrics
+    max_output_tokens_per_s: float
+    max_concurrent_requests: int
+
+
+def sample_sharegpt_requests(
+    dataset_path: str,
+    num_requests: int,
+    tokenizer: PreTrainedTokenizerBase,
+    fixed_output_len: Optional[int] = None,
+) -> List[Tuple[str, int, int, None]]:
+    # Load the dataset.
+    with open(dataset_path, encoding='utf-8') as f:
+        dataset = json.load(f)
+    # Filter out the conversations with less than 2 turns.
+    dataset = [data for data in dataset if len(data["conversations"]) >= 2]
+    # Only keep the first two turns of each conversation.
+    dataset = [(data["conversations"][0]["value"],
+                data["conversations"][1]["value"]) for data in dataset]
+
+    # Shuffle the dataset.
+    random.shuffle(dataset)
+
+    # Filter out sequences that are too long or too short
+    filtered_dataset: List[Tuple[str, int, int]] = []
+    for i in range(len(dataset)):
+        if len(filtered_dataset) == num_requests:
+            break
+
+        # Tokenize the prompts and completions.
+        prompt = dataset[i][0]
+        prompt_token_ids = tokenizer(prompt).input_ids
+        completion = dataset[i][1]
+        completion_token_ids = tokenizer(completion).input_ids
+        prompt_len = len(prompt_token_ids)
+        output_len = len(completion_token_ids
+                         ) if fixed_output_len is None else fixed_output_len
+        if prompt_len < 4 or (fixed_output_len is None and output_len < 4):
+            # Prune too short sequences.
+            continue
+        if prompt_len > 1024 or prompt_len + output_len > 2048:
+            # Prune too long sequences.
+            continue
+        filtered_dataset.append((prompt, prompt_len, output_len, None))
+
+    return filtered_dataset
+
+
+def sample_burstgpt_requests(
+    dataset_path: str,
+    num_requests: int,
+    random_seed: int,
+    tokenizer: PreTrainedTokenizerBase,
+) -> List[Tuple[str, int, int, None]]:
+    df = pd.read_csv(dataset_path)
+    gpt4_df = df[df["Model"] == "GPT-4"]
+    # Remove the failed requests (i.e., response length is 0)
+    gpt4_df = gpt4_df[gpt4_df["Response tokens"] > 0]
+    # Randomly sample num_requests from the dataset
+    if num_requests <= len(gpt4_df):
+        gpt4_df = gpt4_df.sample(n=num_requests, random_state=random_seed)
+    else:
+        gpt4_df = gpt4_df.sample(n=num_requests,
+                                 random_state=random_seed,
+                                 replace=True)
+    # Convert the dataframe to a list of tuples
+    dataset = gpt4_df.values.tolist()
+    input_requests = []
+    for i in range(num_requests):
+        input_len = int(dataset[i][2])
+        output_len = int(dataset[i][3])
+        prompt = tokenizer.decode([(i + j) % tokenizer.vocab_size
+                                   for j in range(input_len)])
+        input_requests.append((prompt, input_len, output_len, None))
+    return input_requests
+
+
+def sample_sonnet_requests(
+    dataset_path: str,
+    num_requests: int,
+    input_len: int,
+    output_len: int,
+    prefix_len: int,
+    tokenizer: PreTrainedTokenizerBase,
+) -> List[Tuple[str, str, int, int, None]]:
+    assert (
+        input_len > prefix_len
+    ), "'args.sonnet-input-len' must be greater than 'args.prefix-input-len'."
+
+    # Load the dataset.
+    with open(dataset_path, encoding='utf-8') as f:
+        poem_lines = f.readlines()
+
+    # Tokenize the poem lines.
+    poem_token_ids = tokenizer(poem_lines).input_ids
+    average_poem_len = sum(
+        len(token_ids) for token_ids in poem_token_ids) / len(poem_token_ids)
+
+    # Base prefix for all requests.
+    base_prompt = "Pick as many lines as you can from these poem lines:\n"
+    base_message = [{
+        "role": "user",
+        "content": base_prompt,
+    }]
+    base_prompt_formatted = tokenizer.apply_chat_template(
+        base_message, add_generation_prompt=True, tokenize=False)
+    base_prompt_offset = len(tokenizer(base_prompt_formatted).input_ids)
+
+    assert (
+        input_len > base_prompt_offset
+    ), f"Please set 'args.sonnet-input-len' higher than {base_prompt_offset}."
+    num_input_lines = round(
+        (input_len - base_prompt_offset) / average_poem_len)
+
+    # First approximately `prefix_len` number of tokens in the
+    # prompt are fixed poem lines.
+    assert (
+        prefix_len > base_prompt_offset
+    ), f"Please set 'args.sonnet-prefix-len' higher than {base_prompt_offset}."
+
+    num_prefix_lines = round(
+        (prefix_len - base_prompt_offset) / average_poem_len)
+    prefix_lines = poem_lines[:num_prefix_lines]
+
+    # Sample the rest of lines per request.
+    sampled_requests: List[Tuple[str, int, int]] = []
+    for _ in range(num_requests):
+        num_lines_needed = num_input_lines - num_prefix_lines
+        sampled_lines = "".join(prefix_lines +
+                                random.choices(poem_lines, k=num_lines_needed))
+
+        prompt = f"{base_prompt}{sampled_lines}"
+        message = [
+            {
+                "role": "user",
+                "content": prompt,
+            },
+        ]
+        prompt_formatted = tokenizer.apply_chat_template(
+            message, add_generation_prompt=True, tokenize=False)
+        prompt_len = len(tokenizer(prompt_formatted).input_ids)
+        sampled_requests.append(
+            (prompt, prompt_formatted, prompt_len, output_len, None))
+
+    return sampled_requests
+
+
+def sample_vision_arena_requests(
+    dataset,
+    num_requests: int,
+    tokenizer: PreTrainedTokenizerBase,
+    fixed_output_len: Optional[int] = None,
+) -> List[Tuple[str, str, int, Optional[Dict[str, Collection[str]]]]]:
+    sampled_requests: List[Tuple[str, int, int, Dict[str,
+                                                     Collection[str]]]] = []
+    for data in dataset:
+        if len(sampled_requests) == num_requests:
+            break
+
+        prompt = data["turns"][0][0]['content']
+
+        prompt_token_ids = tokenizer(prompt).input_ids
+        if fixed_output_len is None:
+            # Default max output len is set to 128
+            print("--hf-output-len is not provided. Using default value 128.")
+            fixed_output_len = 128
+
+        prompt_len = len(prompt_token_ids)
+        output_len = fixed_output_len
+
+        assert isinstance(
+            data["images"][0],
+            Image), ("Input image format must be `PIL.Image.Image`, "
+                     f"given {type(data['image'])}.")
+        image: Image = data["images"][0]
+        image = image.convert("RGB")
+        image_data = io.BytesIO()
+        image.save(image_data, format='JPEG')
+        image_base64 = base64.b64encode(image_data.getvalue()).decode("utf-8")
+        mm_content = {
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:image/jpeg;base64,{image_base64}"
+            },
+        }
+
+        sampled_requests.append((prompt, prompt_len, output_len, mm_content))
+
+    return sampled_requests
+
+
+def sample_hf_requests(
+    dataset_path: str,
+    dataset_subset: Optional[str],
+    dataset_split: str,
+    num_requests: int,
+    tokenizer: PreTrainedTokenizerBase,
+    random_seed: int,
+    fixed_output_len: Optional[int] = None,
+) -> List[Tuple[str, str, int, Optional[Dict[str, Collection[str]]]]]:
+
+    # Special case for vision_arena dataset
+    if dataset_path == 'lmarena-ai/vision-arena-bench-v0.1' \
+        and dataset_subset is None:
+        assert dataset_split == "train"
+        dataset = load_dataset(dataset_path,
+                               name=dataset_subset,
+                               split=dataset_split,
+                               streaming=True)
+        dataset = dataset.shuffle(seed=random_seed)
+        return sample_vision_arena_requests(dataset, num_requests, tokenizer,
+                                            fixed_output_len)
+
+    dataset = load_dataset(dataset_path,
+                           name=dataset_subset,
+                           split=dataset_split,
+                           streaming=True)
+    assert "conversations" in dataset.features, (
+        "HF Dataset must have 'conversations' column.")
+    filter_func = lambda x: len(x["conversations"]) >= 2
+    filtered_dataset = dataset.shuffle(seed=random_seed).filter(filter_func)
+    sampled_requests: List[Tuple[str, int, int, Dict[str,
+                                                     Collection[str]]]] = []
+    for data in filtered_dataset:
+        if len(sampled_requests) == num_requests:
+            break
+
+        # Tokenize the prompts and completions.
+        prompt = data["conversations"][0]["value"]
+        prompt_token_ids = tokenizer(prompt).input_ids
+        completion = data["conversations"][1]["value"]
+        completion_token_ids = tokenizer(completion).input_ids
+        prompt_len = len(prompt_token_ids)
+        output_len = len(completion_token_ids
+                         ) if fixed_output_len is None else fixed_output_len
+        if fixed_output_len is None and (prompt_len < 4 or output_len < 4):
+            # Prune too short sequences.
+            continue
+        if fixed_output_len is None and \
+            (prompt_len > 1024 or prompt_len + output_len > 2048):
+            # Prune too long sequences.
+            continue
+
+        if "image" in data and isinstance(data["image"], Image):
+            image: Image = data["image"]
+            image = image.convert("RGB")
+            image_data = io.BytesIO()
+            image.save(image_data, format='JPEG')
+            image_base64 = base64.b64encode(
+                image_data.getvalue()).decode("utf-8")
+            mm_content = {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{image_base64}"
+                },
+            }
+        elif "image" in data and isinstance(data["image"], str):
+            if (data["image"].startswith("http://") or \
+                data["image"].startswith("file://")):
+                image_url = data["image"]
+            else:
+                image_url = f"file://{data['image']}"
+
+            mm_content = {
+                "type": "image_url",
+                "image_url": {
+                    "url": image_url
+                },
+            }
+        else:
+            mm_content = None
+
+        sampled_requests.append((prompt, prompt_len, output_len, mm_content))
+
+    return sampled_requests
 
 
 def sample_random_requests(
@@ -297,6 +573,46 @@ def calculate_metrics(
             "All requests failed. This is likely due to a misconfiguration "
             "on the benchmark arguments.",
             stacklevel=2)
+
+    # Calculate peak metrics (max tokens/s and max concurrent requests)
+    max_output_tokens_per_s = 0.0
+    max_concurrent_requests = 0
+    successful_outputs = [o for o in outputs if o.success]
+    if successful_outputs:
+        # Find time bounds
+        min_start_time = min(o.start_time for o in successful_outputs)
+        max_end_time = max(o.start_time + o.latency for o in successful_outputs)
+        duration_seconds = int(np.ceil(max_end_time - min_start_time)) + 1
+
+        if duration_seconds > 0:
+            tokens_per_second = np.zeros(duration_seconds)
+            concurrent_requests_per_second = np.zeros(duration_seconds)
+
+            for i, output in enumerate(successful_outputs):
+                # Track concurrent requests per second bucket
+                request_start_second = int(output.start_time - min_start_time)
+                request_end_second = int(
+                    (output.start_time + output.latency) - min_start_time)
+                request_end_second = min(request_end_second, duration_seconds - 1)
+                for second in range(request_start_second, request_end_second + 1):
+                    concurrent_requests_per_second[second] += 1
+
+                # Track tokens per second based on ITL timing
+                if output.itl:
+                    current_time = output.start_time + output.ttft
+                    for itl_value in output.itl:
+                        token_second = int(current_time - min_start_time)
+                        if 0 <= token_second < duration_seconds:
+                            tokens_per_second[token_second] += 1
+                        current_time += itl_value
+                    # Account for last token
+                    token_second = int(current_time - min_start_time)
+                    if 0 <= token_second < duration_seconds:
+                        tokens_per_second[token_second] += 1
+
+            max_output_tokens_per_s = float(np.max(tokens_per_second))
+            max_concurrent_requests = int(np.max(concurrent_requests_per_second))
+
     metrics = BenchmarkMetrics(
         completed=completed,
         total_input=total_input,
@@ -326,6 +642,8 @@ def calculate_metrics(
         median_e2el_ms=np.median(e2els or 0) * 1000,
         percentiles_e2el_ms=[(p, np.percentile(e2els or 0, p) * 1000)
                              for p in selected_percentiles],
+        max_output_tokens_per_s=max_output_tokens_per_s,
+        max_concurrent_requests=max_concurrent_requests,
     )
 
     return metrics, actual_output_lens
@@ -358,247 +676,272 @@ async def benchmark(
     else:
         raise ValueError(f"Unknown backend: {backend}")
 
-    test_prompt, test_prompt_len, test_output_len, test_mm_content = (
-        input_requests[0])
-    print(f"Starting initial single prompt test run (input length {test_prompt_len}, output length {test_output_len})...")
-    if backend != "openai-chat" and test_mm_content is not None:
-        # multi-modal benchmark is only available on OpenAI Chat backend.
-        raise ValueError(
-            "Multi-modal content is only supported on 'openai-chat' backend.")
-    test_input = RequestFuncInput(
-        model=model_id,
-        model_name=model_name,
-        prompt=test_prompt,
-        api_url=api_url,
-        prompt_len=test_prompt_len,
-        output_len=test_output_len,
-        logprobs=logprobs,
-        best_of=best_of,
-        multi_modal_content=test_mm_content,
-        ignore_eos=ignore_eos,
-    )
-    
-
-    # Take from vLLM ready_checker.py
-    # https://github.com/vllm-project/vllm/blob/e6ba2000aef3e61ca84bb114472badecbd533ee9/vllm/benchmarks/lib/ready_checker.py#L14
+    # Create optimized TCPConnector for connection pooling
     import aiohttp
-    timeout = 600
-    delay = 5
-    print(f"Waiting for endpoint to startup in {timeout} seconds")
-    for t in tqdm(range(timeout)):
-        if t % delay == 0:
-            try:
-                test_output = await request_func(request_func_input=test_input)
-                if test_output.success:
-                    break
-            except aiohttp.ClientConnectorError as e:
-                pass
-            await asyncio.sleep(delay)
-    else:
-        test_output = await request_func(request_func_input=test_input)
-        raise ValueError(
-            "Initial test run failed - Please make sure benchmark arguments "
-            f"are correctly specified. Error: {test_output.error}"
-        )
-    print("Initial test run completed. Starting main benchmark run...")
+    connector = aiohttp.TCPConnector(
+        limit=max_concurrency or 0,
+        limit_per_host=max_concurrency or 0,
+        ttl_dns_cache=300,
+        use_dns_cache=True,
+        keepalive_timeout=60,
+        enable_cleanup_closed=True,
+        force_close=False,
+    )
+    timeout = aiohttp.ClientTimeout(total=6 * 60 * 60)
+    session = aiohttp.ClientSession(
+        connector=connector,
+        timeout=timeout,
+        trust_env=True,
+    )
 
-    if num_warmups > 0:
-        print(f"Warming up with {num_warmups} requests...")
-        warmup_pbar = None if disable_tqdm else tqdm(total=num_warmups)
-        warmup_semaphore = asyncio.Semaphore(max_concurrency) if max_concurrency else contextlib.nullcontext()
-
-        async def warmup_limited_req_fn():
-            async with warmup_semaphore:
-                return await request_func(request_func_input=test_input, pbar=warmup_pbar)
-
-        warmup_tasks = []
-        for _ in range(num_warmups):
-            task = asyncio.create_task(warmup_limited_req_fn())
-            warmup_tasks.append(task)
-        _ = await asyncio.gather(*warmup_tasks)
-
-        if warmup_pbar is not None:
-            warmup_pbar.close()
-        print("Warmup completed.")
-
-    if lora_modules:
-        # For each input request, choose a LoRA module at random.
-        lora_modules = iter(
-            [random.choice(lora_modules) for _ in range(len(input_requests))])
-
-    if profile:
-        print("Starting profiler...")
-        profile_input = RequestFuncInput(model=model_id,
-                                         model_name=model_name,
-                                         prompt=test_prompt,
-                                         api_url=base_url + "/start_profile",
-                                         prompt_len=test_prompt_len,
-                                         output_len=test_output_len,
-                                         logprobs=logprobs,
-                                         best_of=best_of,
-                                         multi_modal_content=test_mm_content,
-                                         ignore_eos=ignore_eos)
-        profile_output = await request_func(request_func_input=profile_input)
-        if profile_output.success:
-            print("Profiler started")
-
-    if burstiness == 1.0:
-        distribution = "Poisson process"
-    else:
-        distribution = "Gamma distribution"
-
-    print(f"Traffic request rate: {request_rate}")
-    print(f"Burstiness factor: {burstiness} ({distribution})")
-    print(f"Maximum request concurrency: {max_concurrency}")
-
-    pbar = None if disable_tqdm else tqdm(total=len(input_requests))
-
-    # This can be used once the minimum Python version is 3.10 or higher,
-    # and it will simplify the code in limited_request_func.
-    #    semaphore = (asyncio.Semaphore(max_concurrency)
-    #                 if max_concurrency else contextlib.nullcontext())
-    semaphore = (asyncio.Semaphore(max_concurrency)
-                 if max_concurrency else None)
-
-    async def limited_request_func(request_func_input, pbar):
-        if semaphore is None:
-            return await request_func(request_func_input=request_func_input,
-                                      pbar=pbar)
-        async with semaphore:
-            return await request_func(request_func_input=request_func_input,
-                                      pbar=pbar)
-
-    benchmark_start_time = time.perf_counter()
-    tasks: List[asyncio.Task] = []
-    async for request in get_request(input_requests, request_rate, burstiness):
-        prompt, prompt_len, output_len, mm_content = request
-        req_model_id, req_model_name = model_id, model_name
-        if lora_modules:
-            req_lora_module = next(lora_modules)
-            req_model_id, req_model_name = req_lora_module, req_lora_module
-
-        request_func_input = RequestFuncInput(model=req_model_id,
-                                              model_name=req_model_name,
-                                              prompt=prompt,
-                                              api_url=api_url,
-                                              prompt_len=prompt_len,
-                                              output_len=output_len,
-                                              logprobs=logprobs,
-                                              best_of=best_of,
-                                              multi_modal_content=mm_content,
-                                              ignore_eos=ignore_eos)
-        tasks.append(
-            asyncio.create_task(
-                limited_request_func(request_func_input=request_func_input,
-                                     pbar=pbar)))
-    outputs: List[RequestFuncOutput] = await asyncio.gather(*tasks)
-
-    if profile:
-        print("Stopping profiler...")
-        profile_input = RequestFuncInput(
+    try:
+        test_prompt, test_prompt_len, test_output_len, test_mm_content = (
+            input_requests[0])
+        print(f"Starting initial single prompt test run (input length {test_prompt_len}, output length {test_output_len})...")
+        if backend != "openai-chat" and test_mm_content is not None:
+            # multi-modal benchmark is only available on OpenAI Chat backend.
+            raise ValueError(
+                "Multi-modal content is only supported on 'openai-chat' backend.")
+        test_input = RequestFuncInput(
             model=model_id,
+            model_name=model_name,
             prompt=test_prompt,
-            api_url=base_url + "/stop_profile",
+            api_url=api_url,
             prompt_len=test_prompt_len,
             output_len=test_output_len,
             logprobs=logprobs,
             best_of=best_of,
+            multi_modal_content=test_mm_content,
+            ignore_eos=ignore_eos,
         )
-        profile_output = await request_func(request_func_input=profile_input)
-        if profile_output.success:
-            print("Profiler stopped")
 
-    if pbar is not None:
-        pbar.close()
+        # Take from vLLM ready_checker.py
+        # https://github.com/vllm-project/vllm/blob/e6ba2000aef3e61ca84bb114472badecbd533ee9/vllm/benchmarks/lib/ready_checker.py#L14
+        ready_timeout = 600
+        delay = 5
+        print(f"Waiting for endpoint to startup in {ready_timeout} seconds")
+        for t in tqdm(range(ready_timeout)):
+            if t % delay == 0:
+                try:
+                    test_output = await request_func(request_func_input=test_input, session=session)
+                    if test_output.success:
+                        break
+                except aiohttp.ClientConnectorError as e:
+                    pass
+                await asyncio.sleep(delay)
+        else:
+            test_output = await request_func(request_func_input=test_input, session=session)
+            raise ValueError(
+                "Initial test run failed - Please make sure benchmark arguments "
+                f"are correctly specified. Error: {test_output.error}"
+            )
+        print("Initial test run completed. Starting main benchmark run...")
 
-    benchmark_duration = time.perf_counter() - benchmark_start_time
+        if num_warmups > 0:
+            print(f"Warming up with {num_warmups} requests...")
+            warmup_pbar = None if disable_tqdm else tqdm(total=num_warmups)
+            warmup_semaphore = asyncio.Semaphore(max_concurrency) if max_concurrency else contextlib.nullcontext()
 
-    metrics, actual_output_lens = calculate_metrics(
-        input_requests=input_requests,
-        outputs=outputs,
-        dur_s=benchmark_duration,
-        tokenizer=tokenizer,
-        selected_percentile_metrics=selected_percentile_metrics,
-        selected_percentiles=selected_percentiles,
-        goodput_config_dict=goodput_config_dict,
-    )
+            async def warmup_limited_req_fn():
+                async with warmup_semaphore:
+                    return await request_func(request_func_input=test_input, pbar=warmup_pbar, session=session)
 
-    print("{s:{c}^{n}}".format(s=' Serving Benchmark Result ', n=50, c='='))
-    print("{:<40} {:<10}".format("Successful requests:", metrics.completed))
-    print("{:<40} {:<10.2f}".format("Benchmark duration (s):",
-                                    benchmark_duration))
-    print("{:<40} {:<10}".format("Total input tokens:", metrics.total_input))
-    print("{:<40} {:<10}".format("Total generated tokens:",
-                                 metrics.total_output))
-    print("{:<40} {:<10.2f}".format("Request throughput (req/s):",
-                                    metrics.request_throughput))
-    if goodput_config_dict:
-        print("{:<40} {:<10.2f}".format("Request goodput (req/s):",
-                                        metrics.request_goodput))
-    print("{:<40} {:<10.2f}".format("Output token throughput (tok/s):",
-                                    metrics.output_throughput))
-    print("{:<40} {:<10.2f}".format("Total Token throughput (tok/s):",
-                                    metrics.total_token_throughput))
+            warmup_tasks = []
+            for _ in range(num_warmups):
+                task = asyncio.create_task(warmup_limited_req_fn())
+                warmup_tasks.append(task)
+            _ = await asyncio.gather(*warmup_tasks)
 
-    result = {
-        "duration": benchmark_duration,
-        "completed": metrics.completed,
-        "total_input_tokens": metrics.total_input,
-        "total_output_tokens": metrics.total_output,
-        "request_throughput": metrics.request_throughput,
-        "request_goodput:":
-        metrics.request_goodput if goodput_config_dict else None,
-        "output_throughput": metrics.output_throughput,
-        "total_token_throughput": metrics.total_token_throughput,
-        "input_lens": [output.prompt_len for output in outputs],
-        "output_lens": actual_output_lens,
-        "ttfts": [output.ttft for output in outputs],
-        "itls": [output.itl for output in outputs],
-        "generated_texts": [output.generated_text for output in outputs],
-        "errors": [output.error for output in outputs],
-    }
+            if warmup_pbar is not None:
+                warmup_pbar.close()
+            print("Warmup completed.")
 
-    def process_one_metric(
-        # E.g., "ttft"
-        metric_attribute_name: str,
-        # E.g., "TTFT"
-        metric_name: str,
-        # E.g., "Time to First Token"
-        metric_header: str,
-    ):
-        # This function prints and adds statistics of the specified
-        # metric.
-        if metric_attribute_name not in selected_percentile_metrics:
-            return
-        print("{s:{c}^{n}}".format(s=metric_header, n=50, c='-'))
-        print("{:<40} {:<10.2f}".format(
-            f"Mean {metric_name} (ms):",
-            getattr(metrics, f"mean_{metric_attribute_name}_ms")))
-        print("{:<40} {:<10.2f}".format(
-            f"Median {metric_name} (ms):",
-            getattr(metrics, f"median_{metric_attribute_name}_ms")))
-        result[f"mean_{metric_attribute_name}_ms"] = getattr(
-            metrics, f"mean_{metric_attribute_name}_ms")
-        result[f"median_{metric_attribute_name}_ms"] = getattr(
-            metrics, f"median_{metric_attribute_name}_ms")
-        result[f"std_{metric_attribute_name}_ms"] = getattr(
-            metrics, f"std_{metric_attribute_name}_ms")
-        for p, value in getattr(metrics,
-                                f"percentiles_{metric_attribute_name}_ms"):
-            p_word = str(int(p)) if int(p) == p else str(p)
-            print("{:<40} {:<10.2f}".format(f"P{p_word} {metric_name} (ms):",
-                                            value))
-            result[f"p{p_word}_{metric_attribute_name}_ms"] = value
+        if lora_modules:
+            # For each input request, choose a LoRA module at random.
+            lora_modules = iter(
+                [random.choice(lora_modules) for _ in range(len(input_requests))])
 
-    process_one_metric("ttft", "TTFT", "Time to First Token")
-    process_one_metric("tpot", "TPOT",
-                       "Time per Output Token (excl. 1st token)")
-    process_one_metric("itl", "ITL", "Inter-token Latency")
-    process_one_metric("e2el", "E2EL", "End-to-end Latency")
+        if profile:
+            print("Starting profiler...")
+            profile_input = RequestFuncInput(model=model_id,
+                                             model_name=model_name,
+                                             prompt=test_prompt,
+                                             api_url=base_url + "/start_profile",
+                                             prompt_len=test_prompt_len,
+                                             output_len=test_output_len,
+                                             logprobs=logprobs,
+                                             best_of=best_of,
+                                             multi_modal_content=test_mm_content,
+                                             ignore_eos=ignore_eos)
+            profile_output = await request_func(request_func_input=profile_input, session=session)
+            if profile_output.success:
+                print("Profiler started")
 
-    print("=" * 50)
+        if burstiness == 1.0:
+            distribution = "Poisson process"
+        else:
+            distribution = "Gamma distribution"
 
-    return result
+        print(f"Traffic request rate: {request_rate}")
+        print(f"Burstiness factor: {burstiness} ({distribution})")
+        print(f"Maximum request concurrency: {max_concurrency}")
+
+        pbar = None if disable_tqdm else tqdm(total=len(input_requests))
+
+        # This can be used once the minimum Python version is 3.10 or higher,
+        # and it will simplify the code in limited_request_func.
+        #    semaphore = (asyncio.Semaphore(max_concurrency)
+        #                 if max_concurrency else contextlib.nullcontext())
+        semaphore = (asyncio.Semaphore(max_concurrency)
+                     if max_concurrency else None)
+
+        async def limited_request_func(request_func_input, pbar):
+            if semaphore is None:
+                return await request_func(request_func_input=request_func_input,
+                                          pbar=pbar, session=session)
+            async with semaphore:
+                return await request_func(request_func_input=request_func_input,
+                                          pbar=pbar, session=session)
+
+        benchmark_start_time = time.perf_counter()
+        tasks: List[asyncio.Task] = []
+        async for request in get_request(input_requests, request_rate, burstiness):
+            prompt, prompt_len, output_len, mm_content = request
+            req_model_id, req_model_name = model_id, model_name
+            if lora_modules:
+                req_lora_module = next(lora_modules)
+                req_model_id, req_model_name = req_lora_module, req_lora_module
+
+            request_func_input = RequestFuncInput(model=req_model_id,
+                                                  model_name=req_model_name,
+                                                  prompt=prompt,
+                                                  api_url=api_url,
+                                                  prompt_len=prompt_len,
+                                                  output_len=output_len,
+                                                  logprobs=logprobs,
+                                                  best_of=best_of,
+                                                  multi_modal_content=mm_content,
+                                                  ignore_eos=ignore_eos)
+            tasks.append(
+                asyncio.create_task(
+                    limited_request_func(request_func_input=request_func_input,
+                                         pbar=pbar)))
+        outputs: List[RequestFuncOutput] = await asyncio.gather(*tasks)
+
+        if profile:
+            print("Stopping profiler...")
+            profile_input = RequestFuncInput(
+                model=model_id,
+                prompt=test_prompt,
+                api_url=base_url + "/stop_profile",
+                prompt_len=test_prompt_len,
+                output_len=test_output_len,
+                logprobs=logprobs,
+                best_of=best_of,
+            )
+            profile_output = await request_func(request_func_input=profile_input, session=session)
+            if profile_output.success:
+                print("Profiler stopped")
+
+        if pbar is not None:
+            pbar.close()
+
+        benchmark_duration = time.perf_counter() - benchmark_start_time
+
+        metrics, actual_output_lens = calculate_metrics(
+            input_requests=input_requests,
+            outputs=outputs,
+            dur_s=benchmark_duration,
+            tokenizer=tokenizer,
+            selected_percentile_metrics=selected_percentile_metrics,
+            selected_percentiles=selected_percentiles,
+            goodput_config_dict=goodput_config_dict,
+        )
+
+        print("{s:{c}^{n}}".format(s=' Serving Benchmark Result ', n=50, c='='))
+        print("{:<40} {:<10}".format("Successful requests:", metrics.completed))
+        print("{:<40} {:<10.2f}".format("Benchmark duration (s):",
+                                        benchmark_duration))
+        print("{:<40} {:<10}".format("Total input tokens:", metrics.total_input))
+        print("{:<40} {:<10}".format("Total generated tokens:",
+                                     metrics.total_output))
+        print("{:<40} {:<10.2f}".format("Request throughput (req/s):",
+                                        metrics.request_throughput))
+        if goodput_config_dict:
+            print("{:<40} {:<10.2f}".format("Request goodput (req/s):",
+                                            metrics.request_goodput))
+        print("{:<40} {:<10.2f}".format("Output token throughput (tok/s):",
+                                        metrics.output_throughput))
+        print("{:<40} {:<10.2f}".format("Total Token throughput (tok/s):",
+                                        metrics.total_token_throughput))
+        print("{:<40} {:<10.2f}".format("Peak output tokens/s:",
+                                        metrics.max_output_tokens_per_s))
+        print("{:<40} {:<10}".format("Peak concurrent requests:",
+                                     metrics.max_concurrent_requests))
+
+        result = {
+            "duration": benchmark_duration,
+            "completed": metrics.completed,
+            "total_input_tokens": metrics.total_input,
+            "total_output_tokens": metrics.total_output,
+            "request_throughput": metrics.request_throughput,
+            "request_goodput:":
+            metrics.request_goodput if goodput_config_dict else None,
+            "output_throughput": metrics.output_throughput,
+            "total_token_throughput": metrics.total_token_throughput,
+            "max_output_tokens_per_s": metrics.max_output_tokens_per_s,
+            "max_concurrent_requests": metrics.max_concurrent_requests,
+            "input_lens": [output.prompt_len for output in outputs],
+            "output_lens": actual_output_lens,
+            "ttfts": [output.ttft for output in outputs],
+            "itls": [output.itl for output in outputs],
+            "generated_texts": [output.generated_text for output in outputs],
+            "errors": [output.error for output in outputs],
+        }
+
+        def process_one_metric(
+            # E.g., "ttft"
+            metric_attribute_name: str,
+            # E.g., "TTFT"
+            metric_name: str,
+            # E.g., "Time to First Token"
+            metric_header: str,
+        ):
+            # This function prints and adds statistics of the specified
+            # metric.
+            if metric_attribute_name not in selected_percentile_metrics:
+                return
+            print("{s:{c}^{n}}".format(s=metric_header, n=50, c='-'))
+            print("{:<40} {:<10.2f}".format(
+                f"Mean {metric_name} (ms):",
+                getattr(metrics, f"mean_{metric_attribute_name}_ms")))
+            print("{:<40} {:<10.2f}".format(
+                f"Median {metric_name} (ms):",
+                getattr(metrics, f"median_{metric_attribute_name}_ms")))
+            result[f"mean_{metric_attribute_name}_ms"] = getattr(
+                metrics, f"mean_{metric_attribute_name}_ms")
+            result[f"median_{metric_attribute_name}_ms"] = getattr(
+                metrics, f"median_{metric_attribute_name}_ms")
+            result[f"std_{metric_attribute_name}_ms"] = getattr(
+                metrics, f"std_{metric_attribute_name}_ms")
+            for p, value in getattr(metrics,
+                                    f"percentiles_{metric_attribute_name}_ms"):
+                p_word = str(int(p)) if int(p) == p else str(p)
+                print("{:<40} {:<10.2f}".format(f"P{p_word} {metric_name} (ms):",
+                                                value))
+                result[f"p{p_word}_{metric_attribute_name}_ms"] = value
+
+        process_one_metric("ttft", "TTFT", "Time to First Token")
+        process_one_metric("tpot", "TPOT",
+                           "Time per Output Token (excl. 1st token)")
+        process_one_metric("itl", "ITL", "Inter-token Latency")
+        process_one_metric("e2el", "E2EL", "End-to-end Latency")
+
+        print("=" * 50)
+
+        return result
+    finally:
+        await session.close()
 
 
 def check_goodput_args(args):
@@ -684,7 +1027,78 @@ def main(args: argparse.Namespace):
                               tokenizer_mode=tokenizer_mode,
                               trust_remote_code=args.trust_remote_code)
 
-    if args.dataset_name == "random":
+    if args.dataset is not None:
+        warnings.warn(
+            "The '--dataset' argument will be deprecated in the next "
+            "release. Please use '--dataset-name' and "
+            "'--dataset-path' in the future runs.",
+            stacklevel=2)
+        input_requests = sample_sharegpt_requests(
+            dataset_path=args.dataset,
+            num_requests=args.num_prompts,
+            tokenizer=tokenizer,
+            fixed_output_len=args.sharegpt_output_len,
+        )
+
+    elif args.dataset_name == "sharegpt":
+        input_requests = sample_sharegpt_requests(
+            dataset_path=args.dataset_path,
+            num_requests=args.num_prompts,
+            tokenizer=tokenizer,
+            fixed_output_len=args.sharegpt_output_len,
+        )
+
+    elif args.dataset_name == "burstgpt":
+        input_requests = sample_burstgpt_requests(
+            dataset_path=args.dataset_path,
+            num_requests=args.num_prompts,
+            random_seed=args.seed,
+            tokenizer=tokenizer,
+        )
+
+    elif args.dataset_name == "sonnet":
+        # Do not format the prompt, pass to message directly
+        if args.backend == "openai-chat":
+            input_requests = sample_sonnet_requests(
+                dataset_path=args.dataset_path,
+                num_requests=args.num_prompts,
+                input_len=args.sonnet_input_len,
+                output_len=args.sonnet_output_len,
+                prefix_len=args.sonnet_prefix_len,
+                tokenizer=tokenizer,
+            )
+            input_requests = [(prompt, prompt_len, output_len, None)
+                              for prompt, prompt_formatted, prompt_len,
+                              output_len, _ in input_requests]
+
+        else:
+            assert (
+                tokenizer.chat_template or tokenizer.default_chat_template
+            ), "Tokenizer/model must have chat template for sonnet dataset."
+            input_requests = sample_sonnet_requests(
+                dataset_path=args.dataset_path,
+                num_requests=args.num_prompts,
+                input_len=args.sonnet_input_len,
+                output_len=args.sonnet_output_len,
+                prefix_len=args.sonnet_prefix_len,
+                tokenizer=tokenizer,
+            )
+            input_requests = [(prompt_formatted, prompt_len, output_len, None)
+                              for prompt, prompt_formatted, prompt_len,
+                              output_len, _ in input_requests]
+
+    elif args.dataset_name == "hf":
+        input_requests = sample_hf_requests(
+            dataset_path=args.dataset_path,
+            dataset_subset=args.hf_subset,
+            dataset_split=args.hf_split,
+            num_requests=args.num_prompts,
+            tokenizer=tokenizer,
+            random_seed=args.seed,
+            fixed_output_len=args.hf_output_len,
+        )
+
+    elif args.dataset_name == "random":
         input_requests = sample_random_requests(
             prefix_len=args.random_prefix_len,
             input_len=args.random_input_len,
@@ -763,12 +1177,20 @@ def main(args: argparse.Namespace):
         # Merge with benchmark result
         result_json = {**result_json, **benchmark_result}
 
-        # Optionally exclude per-request data to reduce file size
-        if args.save_aggregated_only:
-            per_request_fields = ["input_lens", "output_lens", "ttfts", "itls",
-                                  "generated_texts", "errors"]
-            for field in per_request_fields:
-                result_json.pop(field, None)
+        if not args.save_detailed:
+            # Remove fields with too many data points
+            for field in [
+                "input_lens",
+                "output_lens",
+                "ttfts",
+                "itls",
+                "generated_texts",
+                "errors",
+            ]:
+                if field in result_json:
+                    del result_json[field]
+                if field in benchmark_result:
+                    del benchmark_result[field]
 
         # Save to file
         base_model_id = model_id.split("/")[-1]
@@ -920,11 +1342,12 @@ if __name__ == "__main__":
         help="Specify to save benchmark results to a json file",
     )
     parser.add_argument(
-        "--save-aggregated-only",
+        "--save-detailed",
         action="store_true",
-        help="When saving results, only include aggregated metrics and exclude "
-        "per-request data (input_lens, output_lens, ttfts, itls, generated_texts, "
-        "errors). This significantly reduces output file size for large benchmarks.",
+        default=False,
+        help="When saving results, include detailed per-request data "
+        "(input_lens, output_lens, ttfts, itls, generated_texts, errors). "
+        "By default, only aggregated metrics are saved to reduce file size.",
     )
     parser.add_argument(
         "--metadata",
