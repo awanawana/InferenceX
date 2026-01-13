@@ -600,7 +600,7 @@ run_lighteval_eval() {
     _install_lighteval_deps
     _patch_lighteval_litellm
 
-    # Prefer OPENAI_MODEL_NAME, then EVAL_MODEL_NAME, then MODEL
+    # For lighteval, MODEL_NAME MUST BE SET
     local model_name="${MODEL_NAME}"
     if [[ -z "$model_name" ]]; then
         echo "Error: MODEL not set for lighteval." >&2

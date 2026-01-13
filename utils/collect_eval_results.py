@@ -9,7 +9,7 @@ from tabulate import tabulate
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from summarize import (
     load_json, MODEL, HARDWARE, FRAMEWORK, PRECISION, ISL, OSL,
-    TP, EP, CONC, DP_ATTENTION, TASK, EM_STRICT, EM_FLEXIBLE, N_EFF
+    TP, EP, CONC, DP_ATTENTION, TASK, SCORE, EM_STRICT, EM_FLEXIBLE, N_EFF
 )
 
 
@@ -57,11 +57,13 @@ def detect_eval_jsons(d: Path) -> Tuple[Optional[Path], Optional[Path]]:
     return lm_path, le_path
 
 
-def extract_lm_metrics(json_path: Path) -> Dict[str, Any]:
+def extract_lm_metrics(json_path: Path) -> List[Dict[str, Any]]:
     """Extract metrics from lm-eval harness result JSON.
-    
+
+    Returns a list of metric dicts, one per task in the results.
+
     Uses explicit structure from the JSON file:
-    - Task name from results keys
+    - Task names from results keys
     - Metric name from configs.metric_list
     - Filter names from configs.filter_list
     - Values from results[task][metric,filter]
@@ -69,96 +71,111 @@ def extract_lm_metrics(json_path: Path) -> Dict[str, Any]:
     data = load_json(json_path) or {}
     results = data.get('results', {})
     configs = data.get('configs', {})
-    
+
     if not results:
-        return {}
-        
-    # 1. Task: first key from results
-    task = next(iter(results.keys()))
-    
-    # 2. Base metric: from config's metric_list
-    metric_list = configs.get(task, {}).get('metric_list', [])
-    base_metric = metric_list[0]['metric'] if metric_list else 'exact_match'
-    
-    # 3. Filters: from config's filter_list
-    filter_list = configs.get(task, {}).get('filter_list', [])
-    
-    strict_val, strict_se = None, None
-    flex_val, flex_se = None, None
-    
-    # Helper to get value/stderr pair for filtered metrics
-    def get_val_se(filter_name: str) -> Tuple[Optional[float], Optional[float]]:
-        val_key = f"{base_metric},{filter_name}"
-        se_key = f"{base_metric}_stderr,{filter_name}"
-        return results[task].get(val_key), results[task].get(se_key)
+        return []
 
-    # Extract metrics based on filter_list
-    if not filter_list:
-        # No filters - use base metric for strict
-        strict_val = results[task].get(base_metric)
-        strict_se = results[task].get(f"{base_metric}_stderr")
-    else:
-        # Extract metrics for each filter
-        for f in filter_list:
-            fname = f['name']
-            if 'strict' in fname:
-                strict_val, strict_se = get_val_se(fname)
-            elif 'flex' in fname or 'extract' in fname:
-                flex_val, flex_se = get_val_se(fname)
+    extracted = []
 
-    # N-samples (effective count)
-    n_eff = data.get('n-samples', {}).get(task, {}).get('effective')
-    
-    # Model name
-    model = (
-        data.get('model_name') 
-        or configs.get(task, {}).get('metadata', {}).get('model')
-    )
+    for task in results.keys():
+        task_results = results[task]
+        task_config = configs.get(task, {})
 
-    return {
-        'task': task,
-        'strict': strict_val,
-        'strict_se': strict_se,
-        'flex': flex_val,
-        'flex_se': flex_se,
-        'n_eff': n_eff,
-        'model': model,
-        'source': str(json_path)
-    }
+        # Base metric: from config's metric_list
+        metric_list = task_config.get('metric_list', [])
+        base_metric = metric_list[0]['metric'] if metric_list else 'exact_match'
+
+        # Filters: from config's filter_list
+        filter_list = task_config.get('filter_list', [])
+
+        strict_val, strict_se = None, None
+        flex_val, flex_se = None, None
+        accuracy_val, accuracy_se = None, None
+
+        # Helper to get value/stderr pair for filtered metrics
+        def get_val_se(filter_name: str) -> Tuple[Optional[float], Optional[float]]:
+            val_key = f"{base_metric},{filter_name}"
+            se_key = f"{base_metric}_stderr,{filter_name}"
+            return task_results.get(val_key), task_results.get(se_key)
+
+        # Extract metrics based on filter_list
+        if not filter_list:
+            # No filters - check for accuracy or use base metric
+            if 'acc' in task_results:
+                accuracy_val = task_results.get('acc')
+                accuracy_se = task_results.get('acc_stderr')
+            else:
+                strict_val = task_results.get(base_metric)
+                strict_se = task_results.get(f"{base_metric}_stderr")
+        else:
+            # Extract metrics for each filter
+            for f in filter_list:
+                fname = f['name']
+                if 'strict' in fname:
+                    strict_val, strict_se = get_val_se(fname)
+                elif 'flex' in fname or 'extract' in fname:
+                    flex_val, flex_se = get_val_se(fname)
+
+        # N-samples (effective count)
+        n_eff = data.get('n-samples', {}).get(task, {}).get('effective')
+
+        # Model name
+        model = (
+            data.get('model_name')
+            or task_config.get('metadata', {}).get('model')
+        )
+
+        extracted.append({
+            'task': task,
+            'strict': strict_val,
+            'strict_se': strict_se,
+            'flex': flex_val,
+            'flex_se': flex_se,
+            'accuracy': accuracy_val,
+            'accuracy_se': accuracy_se,
+            'n_eff': n_eff,
+            'model': model,
+            'source': str(json_path)
+        })
+
+    return extracted
 
 
-def extract_lighteval_metrics(json_path: Path, task_base: Optional[str] = None) -> Dict[str, Any]:
-    """Extract metrics from lighteval result JSON."""
+def extract_lighteval_metrics(json_path: Path) -> List[Dict[str, Any]]:
+    """Extract metrics from lighteval result JSON.
+
+    Returns a list of metric dicts, one per task in the results.
+    """
     data = load_json(json_path) or {}
     results = data.get('results', {}) or {}
-    
-    # Find task key
-    key = None
-    if task_base:
-        for k in results.keys():
-            if str(k).startswith(task_base):
-                key = k
-                break
-    if key is None:
-        key = next(iter(results.keys())) if results else 'unknown'
-        
-    r = results.get(key, {})
-    em = r.get('extractive_match')
-    em_se = r.get('extractive_match_stderr')
+
+    if not results:
+        return []
 
     cg = data.get('config_general', {}) or {}
     model = cg.get('model_name') or cg.get('model_config', {}).get('model_name', '')
 
-    return {
-        'task': key,
-        'strict': em,
-        'flex': None,
-        'strict_se': em_se,
-        'flex_se': None,
-        'n_eff': None,
-        'model': model,
-        'source': str(json_path)
-    }
+    extracted = []
+
+    for task in results.keys():
+        r = results.get(task, {})
+        em = r.get('extractive_match')
+        em_se = r.get('extractive_match_stderr')
+
+        extracted.append({
+            'task': task,
+            'strict': em,
+            'strict_se': em_se,
+            'flex': None,
+            'flex_se': None,
+            'accuracy': None,
+            'accuracy_se': None,
+            'n_eff': None,
+            'model': model,
+            'source': str(json_path)
+        })
+
+    return extracted
 
 
 def pct(x: Any) -> str:
@@ -177,6 +194,45 @@ def se(x: Any) -> str:
         return ''
 
 
+def build_row(meta: Dict[str, Any], m: Dict[str, Any]) -> Dict[str, Any]:
+    """Build a result row from metadata and extracted metrics."""
+    row = {
+        'model': m.get('model') or meta.get('model', 'unknown'),
+        'hw': meta.get('hw', 'unknown').upper(),
+        'framework': meta.get('framework', 'unknown').lower(),
+        'precision': meta.get('precision', 'unknown').lower(),
+        'isl': int(meta.get('isl', 0)),
+        'osl': int(meta.get('osl', 0)),
+        'tp': int(meta.get('tp', 1)),
+        'ep': int(meta.get('ep', 1)),
+        'conc': int(meta.get('conc', 0)),
+        'dp_attention': str(meta.get('dp_attention', False)).lower(),
+        'task': m.get('task', 'unknown'),
+        'em_strict': m.get('strict'),
+        'em_strict_se': m.get('strict_se'),
+        'em_flexible': m.get('flex'),
+        'em_flexible_se': m.get('flex_se'),
+        'n_eff': m.get('n_eff'),
+        'source': m.get('source'),
+    }
+
+    # Add universal score field (primary metric for unified comparison)
+    if m.get('strict') is not None:
+        row['score'] = m.get('strict')
+        row['score_name'] = 'em_strict'
+        row['score_se'] = m.get('strict_se')
+    elif m.get('accuracy') is not None:
+        row['score'] = m.get('accuracy')
+        row['score_name'] = 'accuracy'
+        row['score_se'] = m.get('accuracy_se')
+    else:
+        row['score'] = None
+        row['score_name'] = None
+        row['score_se'] = None
+
+    return row
+
+
 def main():
     if len(sys.argv) < 3:
         print('Usage: collect_eval_results.py <results_dir> <exp_name>')
@@ -189,39 +245,22 @@ def main():
     for d in find_eval_sets(root):
         meta = load_json(d / 'meta_env.json') or {}
         lm_path, le_path = detect_eval_jsons(d)
-        
-        # Extract metrics (prefer lm-eval)
+
+        # Extract metrics (prefer lm-eval) - returns list for multi-task support
         if lm_path:
-            m = extract_lm_metrics(lm_path)
+            metrics_list = extract_lm_metrics(lm_path)
         elif le_path:
-            m = extract_lighteval_metrics(le_path)
+            metrics_list = extract_lighteval_metrics(le_path)
         else:
             continue
 
-        if not m:
+        if not metrics_list:
             continue
 
-        # Build row from meta + metrics
-        row = {
-            'model': m.get('model') or meta.get('model', 'unknown'),
-            'hw': meta.get('hw', 'unknown').upper(),
-            'framework': meta.get('framework', 'unknown').lower(),
-            'precision': meta.get('precision', 'unknown').lower(),
-            'isl': int(meta.get('isl', 0)),
-            'osl': int(meta.get('osl', 0)),
-            'tp': int(meta.get('tp', 1)),
-            'ep': int(meta.get('ep', 1)),
-            'conc': int(meta.get('conc', 0)),
-            'dp_attention': str(meta.get('dp_attention', False)).lower(),
-            'task': m.get('task', 'unknown'),
-            'em_strict': m.get('strict'),
-            'em_strict_se': m.get('strict_se'),
-            'em_flexible': m.get('flex'),
-            'em_flexible_se': m.get('flex_se'),
-            'n_eff': m.get('n_eff'),
-            'source': m.get('source'),
-        }
-        rows.append(row)
+        # Build row for each task in the results
+        for m in metrics_list:
+            row = build_row(meta, m)
+            rows.append(row)
 
     # Sort for stable output
     rows.sort(key=lambda r: (
@@ -233,10 +272,10 @@ def main():
     else:
         # Print table using tabulate
         headers = [
-            MODEL, HARDWARE, FRAMEWORK, PRECISION, ISL, OSL, TP, EP, CONC, DP_ATTENTION, 
-            TASK, EM_STRICT, EM_FLEXIBLE, N_EFF
+            MODEL, HARDWARE, FRAMEWORK, PRECISION, ISL, OSL, TP, EP, CONC, DP_ATTENTION,
+            TASK, SCORE, EM_STRICT, EM_FLEXIBLE, N_EFF
         ]
-        
+
         table_rows = [
             [
                 r['model'],
@@ -250,13 +289,14 @@ def main():
                 r['conc'],
                 r['dp_attention'],
                 r['task'],
+                f"{pct(r['score'])}{se(r['score_se'])}",
                 f"{pct(r['em_strict'])}{se(r['em_strict_se'])}",
                 f"{pct(r['em_flexible'])}{se(r['em_flexible_se'])}",
                 r['n_eff'] or ''
             ]
             for r in rows
         ]
-        
+
         print(tabulate(table_rows, headers=headers, tablefmt="github"))
 
     # Write JSON aggregate
