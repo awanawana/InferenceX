@@ -1,6 +1,7 @@
 import sys
 import json
 import os
+import pprint
 from pathlib import Path
 
 
@@ -41,6 +42,8 @@ image = base_env['IMAGE']
 
 with open(f'{result_filename}.json') as f:
     bmk_result = json.load(f)
+    
+print(f"Benchmark results JSON:\n{pprint.pformat(bmk_result)}")
 
 data = {
     'hw': hw,
