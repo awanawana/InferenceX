@@ -226,7 +226,7 @@ run_benchmark_serving() {
 
     # Build benchmark command
     local benchmark_cmd=(
-        python3 "$BENCH_SERVING_DIR/benchmark_serving.py"
+        python3 "$workspace_dir/benchmark_serving.py"
         --model "$model"
         --backend "$backend"
         --base-url "http://0.0.0.0:$port"
