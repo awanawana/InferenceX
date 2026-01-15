@@ -92,7 +92,7 @@ wait_for_server_ready() {
 }
 
 # Run benchmark serving with standardized parameters
-# All parameters are required
+# All parameters are required except --use-chat-template
 # Parameters:
 #   --model: Model name
 #   --port: Server port
@@ -104,6 +104,7 @@ wait_for_server_ready() {
 #   --max-concurrency: Max concurrency
 #   --result-filename: Result filename without extension
 #   --result-dir: Result directory
+#   --use-chat-template: Optional flag to enable chat template
 run_benchmark_serving() {
     set +x
     local model=""
@@ -116,22 +117,58 @@ run_benchmark_serving() {
     local max_concurrency=""
     local result_filename=""
     local result_dir=""
-    local tokenizer=""
+    local use_chat_template=false
 
     while [[ $# -gt 0 ]]; do
         case $1 in
-            --model)              model="$2"; shift 2 ;;
-            --port)               port="$2"; shift 2 ;;
-            --backend)            backend="$2"; shift 2 ;;
-            --input-len)          input_len="$2"; shift 2 ;;
-            --output-len)         output_len="$2"; shift 2 ;;
-            --random-range-ratio) random_range_ratio="$2"; shift 2 ;;
-            --num-prompts)        num_prompts="$2"; shift 2 ;;
-            --max-concurrency)    max_concurrency="$2"; shift 2 ;;
-            --result-filename)    result_filename="$2"; shift 2 ;;
-            --result-dir)         result_dir="$2"; shift 2 ;;
-            --tokenizer)          tokenizer="$2"; shift 2 ;;
-            *)                    echo "Unknown parameter: $1"; return 1 ;;
+            --model)
+                model="$2"
+                shift 2
+                ;;
+            --port)
+                port="$2"
+                shift 2
+                ;;
+            --backend)
+                backend="$2"
+                shift 2
+                ;;
+            --input-len)
+                input_len="$2"
+                shift 2
+                ;;
+            --output-len)
+                output_len="$2"
+                shift 2
+                ;;
+            --random-range-ratio)
+                random_range_ratio="$2"
+                shift 2
+                ;;
+            --num-prompts)
+                num_prompts="$2"
+                shift 2
+                ;;
+            --max-concurrency)
+                max_concurrency="$2"
+                shift 2
+                ;;
+            --result-filename)
+                result_filename="$2"
+                shift 2
+                ;;
+            --result-dir)
+                result_dir="$2"
+                shift 2
+                ;;
+            --use-chat-template)
+                use_chat_template=true
+                shift
+                ;;
+            *)
+                echo "Unknown parameter: $1"
+                return 1
+                ;;
         esac
     done
 
@@ -159,30 +196,37 @@ run_benchmark_serving() {
     BENCH_SERVING_DIR=$(mktemp -d /tmp/bmk-XXXXXX)
     git clone https://github.com/kimbochen/bench_serving.git "$BENCH_SERVING_DIR"
 
-    local extra_tokenizer_args=()
-    if [[ -n "$tokenizer" ]]; then
-        extra_tokenizer_args=(--tokenizer "$tokenizer")
+    # Build benchmark command
+    local benchmark_cmd=(
+        python3 "$BENCH_SERVING_DIR/benchmark_serving.py"
+        --model "$model"
+        --backend "$backend"
+        --base-url "http://0.0.0.0:$port"
+        --dataset-name random
+        --random-input-len "$input_len"
+        --random-output-len "$output_len"
+        --random-range-ratio "$random_range_ratio"
+        --num-prompts "$num_prompts"
+        --max-concurrency "$max_concurrency"
+        --request-rate inf
+        --ignore-eos
+        --save-result
+        --percentile-metrics 'ttft,tpot,itl,e2el'
+        --result-dir "$result_dir"
+        --result-filename "$result_filename.json"
+    )
+    
+    # Add --use-chat-template if requested
+    if [[ "$use_chat_template" == true ]]; then
+        benchmark_cmd+=(--use-chat-template)
     fi
 
+    # Run benchmark
     set -x
-    python3 "$BENCH_SERVING_DIR/benchmark_serving.py" \
-        --model "$model" \
-        --backend "$backend" \
-        --base-url "http://0.0.0.0:$port" \
-        --dataset-name random \
-        --random-input-len "$input_len" \
-        --random-output-len "$output_len" \
-        --random-range-ratio "$random_range_ratio" \
-        --num-prompts "$num_prompts" \
-        --max-concurrency "$max_concurrency" \
-        "${extra_tokenizer_args[@]}" \
-        --request-rate inf \
-        --ignore-eos \
-        --save-result \
-        --percentile-metrics 'ttft,tpot,itl,e2el' \
-        --result-dir "$result_dir" \
-        --result-filename "$result_filename.json"
+    "${benchmark_cmd[@]}"
+    local bench_exit=$?
     set +x
+    return $bench_exit
 }
 
 
@@ -312,7 +356,9 @@ run_lm_eval() {
       --output_path "${results_dir}" --log_samples \
       --model_args "model=${MODEL_NAME},base_url=${openai_chat_base},api_key=${OPENAI_API_KEY},eos_string=</s>,max_retries=2,num_concurrent=${concurrent_requests},tokenized_requests=False,max_length=${gen_max_tokens}" \
       --gen_kwargs "max_tokens=${gen_max_tokens},temperature=${temperature},top_p=${top_p}"
+    local eval_exit=$?
     set +x
+    return $eval_exit
 }
 
 append_lm_eval_summary() {

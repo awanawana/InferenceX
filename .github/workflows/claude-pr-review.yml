@@ -1,0 +1,52 @@
+name: PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+  issue_comment:
+    types: [created]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    # Only run on PR comments (not issue comments) or PR events
+    if: >
+      (github.event_name == 'pull_request') ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request)
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          fetch-depth: 1
+
+      - name: PR Review with Claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          track_progress: true
+          allowed_bots: ''
+          
+          # Allow gh CLI for fetching artifacts
+          claude_args: |
+            --allowedTools "Bash(gh run download:*),Bash(gh run list:*),Bash(gh run view:*),Bash(gh api:*),Bash(cat:*),Bash(python3:*),Bash(jq:*),Bash(ls:*),Bash(find:*),Read,Glob,Grep,mcp__github__*"
+
+          prompt: |
+            Review this PR for InferenceMAX.
+            
+            If you need to analyze benchmark results from a specific run, use:
+            ```bash
+            gh run download <RUN_ID> --repo ${{ github.repository }} -n results_bmk -D ./results
+            cat ./results/results_bmk/*.json | python3 -m json.tool
+            ```
+            
+            To find recent benchmark runs:
+            ```bash
+            gh run list --repo ${{ github.repository }} --workflow e2e-tests.yml --limit 5
+            ```
+            
+            Focus on: code quality, benchmark config changes, and performance impact.
