@@ -67,7 +67,9 @@ else
     MAX_BATCH_SIZE=$CONC
 fi
 
-MAX_NUM_TOKENS=$(( ((MTP+1)*MAX_BATCH_SIZE+ISL+64+63)/64*64 ))
+# Account for random range ratio - max input length is ISL * (1 + RANDOM_RANGE_RATIO)
+MAX_ISL=$(echo "$ISL * (1 + $RANDOM_RANGE_RATIO)" | bc | cut -d. -f1)
+MAX_NUM_TOKENS=$(( ((MTP+1)*MAX_BATCH_SIZE+MAX_ISL+64+63)/64*64 ))
 
 set -x
 # Launch TRT-LLM server

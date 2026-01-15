@@ -57,7 +57,9 @@ fi
 
 set -x
 
-MAX_NUM_TOKENS=$(( ($CONC+$ISL+64+63)/64*64 ))
+# Account for random range ratio - max input length is ISL * (1 + RANDOM_RANGE_RATIO)
+MAX_ISL=$(echo "$ISL * (1 + $RANDOM_RANGE_RATIO)" | bc | cut -d. -f1)
+MAX_NUM_TOKENS=$(( ($CONC+$MAX_ISL+64+63)/64*64 ))
 
 # Launch TRT-LLM server
 PYTHONNOUSERSITE=1 mpirun -n 1 --oversubscribe --allow-run-as-root \
