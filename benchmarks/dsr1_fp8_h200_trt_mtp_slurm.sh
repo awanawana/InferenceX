@@ -39,6 +39,14 @@ if [[ "$ISL" == "8192" && "$DP_ATTENTION" == "true" ]]; then
     export PYTORCH_CUDA_ALLOC_CONF="max_split_size_mb:8192"
 fi
 
+# Increase GPU memory fraction for long context (8k input or output) to prevent
+# TRT-LLM from reducing max_seq_len below what's needed for the workload
+if [[ "$ISL" == "8192" || "$OSL" == "8192" ]]; then
+    GPU_MEM_FRACTION=0.9
+else
+    GPU_MEM_FRACTION=0.75
+fi
+
 cat > $EXTRA_CONFIG_FILE << EOF
 cuda_graph_config:
     enable_padding: true
@@ -47,7 +55,7 @@ enable_attention_dp: $DP_ATTENTION
 print_iter_log: true
 kv_cache_config:
     dtype: fp8
-    free_gpu_memory_fraction: 0.75
+    free_gpu_memory_fraction: $GPU_MEM_FRACTION
     enable_block_reuse: false 
 stream_interval: 10
 moe_config:

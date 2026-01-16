@@ -11,6 +11,7 @@ check_env_vars \
     ISL \
     OSL \
     RANDOM_RANGE_RATIO \
+    MAX_MODEL_LEN \
     RESULT_FILENAME
 
 echo "JOB $SLURM_JOB_ID running on $SLURMD_NODENAME"
@@ -20,7 +21,7 @@ async-scheduling: true
 no-enable-prefix-caching: true
 max-cudagraph-capture-size: 2048
 max-num-batched-tokens: 8192
-max-model-len: 10240
+max-model-len: $MAX_MODEL_LEN
 EOF
 
 SERVER_LOG=$(mktemp /tmp/server-XXXXXX.log)
