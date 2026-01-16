@@ -77,8 +77,9 @@ fi
 # Ensure minimum batch size of 1
 MAX_BATCH_SIZE=$(( MAX_BATCH_SIZE > 0 ? MAX_BATCH_SIZE : 1 ))
 
-# Account for random range ratio - max input length is ISL * (1 + RANDOM_RANGE_RATIO)
-MAX_ISL=$(awk -v isl="$ISL" -v ratio="$RANDOM_RANGE_RATIO" 'BEGIN {printf "%.0f", isl * (1 + ratio)}')
+# Account for random range ratio - max input length is ISL * (1 + RANDOM_RANGE_RATIO + 0.02)
+# The extra 0.05 (5%) provides safety margin for the benchmark's test requests
+MAX_ISL=$(awk -v isl="$ISL" -v ratio="$RANDOM_RANGE_RATIO" 'BEGIN {printf "%.0f", isl * (1 + ratio + 0.05)}')
 MAX_NUM_TOKENS=$(( ((MTP+1)*MAX_BATCH_SIZE+MAX_ISL+64+63)/64*64 ))
 
 set -x
