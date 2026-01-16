@@ -32,6 +32,7 @@ SERVER_LOG=$(mktemp /tmp/server-XXXXXX.log)
 
 set -x
 python3 -m sglang.launch_server \
+--attention-backend aiter \
 --model-path=$MODEL --host=0.0.0.0 --port=$PORT --trust-remote-code \
 --tensor-parallel-size=$TP \
 --mem-fraction-static=0.8 \
