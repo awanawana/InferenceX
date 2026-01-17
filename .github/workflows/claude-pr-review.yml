@@ -9,6 +9,94 @@ on:
     types: [created]
 
 jobs:
+  check-perf-changelog:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Get changed files
+        id: changed-files
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              per_page: 100
+            });
+
+            const masterConfigFiles = [
+              '.github/configs/amd-master.yaml',
+              '.github/configs/nvidia-master.yaml'
+            ];
+
+            const changedFilenames = files.map(f => f.filename);
+            const masterConfigChanged = changedFilenames.some(f => masterConfigFiles.includes(f));
+            const perfChangelogChanged = changedFilenames.includes('perf-changelog.yaml');
+
+            core.setOutput('master_config_changed', masterConfigChanged);
+            core.setOutput('perf_changelog_changed', perfChangelogChanged);
+
+            if (masterConfigChanged) {
+              const changedMasterConfigs = changedFilenames.filter(f => masterConfigFiles.includes(f));
+              core.setOutput('changed_master_configs', changedMasterConfigs.join(', '));
+            }
+
+      - name: Comment if perf-changelog not updated
+        if: steps.changed-files.outputs.master_config_changed == 'true' && steps.changed-files.outputs.perf_changelog_changed == 'false'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const changedConfigs = '${{ steps.changed-files.outputs.changed_master_configs }}';
+            const body = `⚠️ **Performance Changelog Required**
+
+            This PR modifies master config file(s): \`${changedConfigs}\`
+
+            Please update \`perf-changelog.yaml\` to document these changes. The changelog entry should include:
+            - \`config-keys\`: Which configuration keys are affected
+            - \`description\`: What changes were made and why
+            - \`pr-link\`: Link to this PR
+
+            Example:
+            \`\`\`yaml
+            - config-keys:
+                - dsr1-fp8-b200-sglang
+              description:
+                - "Description of your changes"
+              pr-link: ${{ github.event.pull_request.html_url }}
+            \`\`\``;
+
+            // Check if we already commented
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number
+            });
+
+            const existingComment = comments.find(c =>
+              c.user.type === 'Bot' &&
+              c.body.includes('Performance Changelog Required')
+            );
+
+            if (existingComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existingComment.id,
+                body: body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body: body
+              });
+            }
+
   review:
     runs-on: ubuntu-latest
     # Only run if:
