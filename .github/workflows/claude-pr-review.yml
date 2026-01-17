@@ -13,12 +13,12 @@ jobs:
     runs-on: ubuntu-latest
     # Only run if:
     # 1. It's a PR event from someone with write access, OR
-    # 2. It's a comment containing @claude from someone with write access
+    # 2. It's a comment containing @pr-claude from someone with write access
     if: |
       (github.event_name == 'pull_request' && 
        contains(fromJson('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association)) ||
       ((github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment') && 
-       contains(github.event.comment.body, '@claude') &&
+       contains(github.event.comment.body, '@pr-claude') &&
        contains(fromJson('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association))
     permissions:
       contents: read
@@ -35,11 +35,12 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          trigger_phrase: "@claude"
+          trigger_phrase: "@pr-claude"
           track_progress: true
           allowed_bots: ''
           
           claude_args: |
+            --model 'claude-opus-4-5-20251101'
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
           prompt: |
             REPO: ${{ github.repository }}
@@ -48,10 +49,10 @@ jobs:
             You are reviewing code for InferenceMAX. Your job is to provide HIGH-SIGNAL feedback only.
 
             ## Commands:
-            - `@claude review` - Full review of the PR
-            - `@claude re-review` - Re-review only NEW changes since your last review (check your previous comments first)
-            - `@claude review <file>` - Review only a specific file
-            - `@claude` followed by a question - Answer the question about this PR
+            - `@pr-claude review` - Full review of the PR
+            - `@pr-claude re-review` - Re-review only NEW changes since your last review (check your previous comments first)
+            - `@pr-claude review <file>` - Review only a specific file
+            - `@pr-claude` followed by a question - Answer the question about this PR
 
             ## If this is a re-review:
             1. First, check existing review comments on this PR using `gh pr view`
@@ -91,5 +92,16 @@ jobs:
             - Use `gh pr comment` ONCE at the end for a brief summary (max 3-4 sentences)
             - If the PR looks good with no issues, just say "LGTM - no blocking issues found" and nothing else
             - For re-reviews, prefix summary with "Re-review:" and note what changed
+
+            ## Master Config and Perf Changelog Validation:
+            When reviewing a PR, check if any of the following master config files were modified:
+            - `.github/configs/amd-master.yaml`
+            - `.github/configs/nvidia-master.yaml`
+
+            If either master config file was edited AND `perf-changelog.yaml` was NOT edited in the same PR:
+            - This is a 🔴 **BLOCKING** issue
+            - Comment that `perf-changelog.yaml` must also be updated when master config files are changed
+            - The perf-changelog entry should document what changed in the config and include the PR link
+            - Format: "Master config files were modified but `perf-changelog.yaml` was not updated. When changing `.github/configs/amd-master.yaml` or `.github/configs/nvidia-master.yaml`, you must add a corresponding entry to `perf-changelog.yaml` documenting the changes."
 
             Remember: Silence is golden. No comment is better than a low-value comment.

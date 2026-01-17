@@ -59,31 +59,26 @@ python -m pytest matrix_logic/ -v
 ```bash
 # Full sweep with all configs
 python utils/matrix_logic/generate_sweep_configs.py full-sweep \
-  --master-config .github/configs/nvidia-master.yaml \
-  --runners-config .github/configs/runners.yaml
+  --master-config .github/configs/nvidia-master.yaml
 
 # Filter by model prefix (dsr1 or gptoss)
 python utils/matrix_logic/generate_sweep_configs.py full-sweep \
   --master-config .github/configs/nvidia-master.yaml \
-  --runners-config .github/configs/runners.yaml \
   --model dsr1
 
 # Filter by framework (sglang, trt, vllm, atom, dynamo-trt, dynamo-sglang)
 python utils/matrix_logic/generate_sweep_configs.py full-sweep \
   --master-config .github/configs/nvidia-master.yaml \
-  --runners-config .github/configs/runners.yaml \
   --framework sglang
 
 # Filter by precision (fp4, fp8)
 python utils/matrix_logic/generate_sweep_configs.py full-sweep \
   --master-config .github/configs/nvidia-master.yaml \
-  --runners-config .github/configs/runners.yaml \
   --precision fp8
 
 # Filter by runner type (b200, h100, h200, gb200, mi300x, mi325x, mi355x)
 python utils/matrix_logic/generate_sweep_configs.py full-sweep \
   --master-config .github/configs/nvidia-master.yaml \
-  --runners-config .github/configs/runners.yaml \
   --runner b200
 ```
 
@@ -173,6 +168,23 @@ When working with benchmark configurations, use these valid values:
 2. Create launcher script in `runners/` directory
 3. Update relevant master config with new runner type
 
+### Updating Docker Images
+
+When upgrading Docker images in benchmark scripts and master configs .yaml:
+
+1. Update the image tag in the relevant `.github/configs/*-master.yaml` and/or `benchmarks/*.sh` script(s)
+2. Update any related environment variables or configuration parameters
+3. **MUST**: Add an entry to `perf-changelog.yaml`: for example:
+   ```yaml
+   - config-keys:
+       - dsr1-fp8-*-vllm  # Use wildcards to match multiple configs
+     description:
+       - "Update vLLM image from v0.11.2 to v0.13.0"
+       - "Add VLLM_MXFP4_USE_MARLIN=1 environment variable"
+     pr-link: https://github.com/InferenceMAX/InferenceMAX/pull/XXX
+   ```
+4. This triggers benchmarks for affected configs and tracks performance changes
+
 ### Debugging Benchmark Failures
 
 1. Check GitHub Actions logs for the failed job
@@ -207,13 +219,6 @@ Markers available: `slow`, `integration`
 
 When asked to analyze benchmark results from a GitHub Actions run URL, use the `gh` CLI.
 
-### Extracting Run ID from URLs
-```
-https://github.com/InferenceMAX/InferenceMAX/actions/runs/200
-
-Run ID: 200
-```
-
 ### Commands
 ```bash
 # List artifacts for a run
@@ -224,7 +229,7 @@ gh run download <RUN_ID> --repo InferenceMAX/InferenceMAX -n results_bmk -D ./re
 ```
 ### Parsing Results (IMPORTANT: avoid dumping raw JSON)
 
-The results JSON can be large. Use `jq` to extract and round to see only what you need, for example:
+The results JSON can be large with multiple decimal places, so avoid dumping the raw JSON. Use `jq` to extract and round to see only what you need, for example:
 ```bash
 # Count total results
 cat ./results/results_bmk/*.json | jq 'length'
