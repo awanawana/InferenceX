@@ -1,1 +1,2 @@
 nvidia-matmul-heuristics==0.1.0.27
+torch==2.7.0
