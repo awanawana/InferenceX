@@ -26,7 +26,7 @@ fi
 echo "Configs available at: $TRTLLM_REPO_DIR/"
 
 export SLURM_PARTITION="gpu"
-export SLURM_ACCOUNT="default"
+export SLURM_ACCOUNT="root"
 
 if [[ $MODEL_PREFIX == "dsr1" ]]; then
     export MODEL_PATH="/lustre/fsw/models/dsr1-0528-nvfp4"
