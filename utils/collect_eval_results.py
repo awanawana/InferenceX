@@ -8,8 +8,9 @@ from tabulate import tabulate
 # Import shared utilities from summarize
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from summarize import (
-    load_json, MODEL, HARDWARE, FRAMEWORK, PRECISION, ISL, OSL,
-    TP, EP, CONC, DP_ATTENTION, TASK, SCORE, EM_STRICT, EM_FLEXIBLE, N_EFF
+    load_json, MODEL, HARDWARE, FRAMEWORK, PRECISION,
+    TP, EP, CONC, DP_ATTENTION, TASK, SCORE, EM_STRICT, EM_FLEXIBLE, N_EFF,
+    SPEC_DECODING
 )
 
 
@@ -160,8 +161,7 @@ def build_row(meta: Dict[str, Any], m: Dict[str, Any]) -> Dict[str, Any]:
         'hw': meta.get('hw', 'unknown').upper(),
         'framework': meta.get('framework', 'unknown').lower(),
         'precision': meta.get('precision', 'unknown').lower(),
-        'isl': int(meta.get('isl', 0)),
-        'osl': int(meta.get('osl', 0)),
+        'spec_decoding': meta.get('spec_decoding', 'unknown'),
         'tp': int(meta.get('tp', 1)),
         'ep': int(meta.get('ep', 1)),
         'conc': int(meta.get('conc', 0)),
@@ -221,7 +221,7 @@ def main():
 
     # Sort for stable output
     rows.sort(key=lambda r: (
-        r['hw'], r['framework'], r['precision'], r['isl'], r['osl'], r['tp'], r['ep'], r['conc']
+        r['hw'], r['framework'], r['precision'], r.get('spec_decoding', ''), r['tp'], r['ep'], r['conc']
     ))
 
     if not rows:
@@ -229,7 +229,7 @@ def main():
     else:
         # Print table using tabulate
         headers = [
-            MODEL, HARDWARE, FRAMEWORK, PRECISION, ISL, OSL, TP, EP, CONC, DP_ATTENTION,
+            MODEL, HARDWARE, FRAMEWORK, PRECISION, SPEC_DECODING, TP, EP, CONC, DP_ATTENTION,
             TASK, SCORE, EM_STRICT, EM_FLEXIBLE, N_EFF
         ]
 
@@ -239,8 +239,7 @@ def main():
                 r['hw'],
                 r['framework'].upper(),
                 r['precision'].upper(),
-                r['isl'],
-                r['osl'],
+                r['spec_decoding'],
                 r['tp'],
                 r['ep'],
                 r['conc'],

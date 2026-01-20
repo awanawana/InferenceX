@@ -398,6 +398,7 @@ append_lm_eval_summary() {
 {
   "framework": "${fw:-unknown}",
   "precision": "${prec:-unknown}",
+  "spec_decoding": "${SPEC_DECODING}",
   "tp": ${TP:-1},
   "conc": ${CONC:-1},
   "ep": ${EP_SIZE:-1},

@@ -40,6 +40,7 @@ SCORE = "Score"
 EM_STRICT = "EM Strict"
 EM_FLEXIBLE = "EM Flexible"
 N_EFF = "N (eff)"
+SPEC_DECODING = "Spec Decode"
 
 
 def load_json(path: Path) -> Optional[Dict[str, Any]]:
