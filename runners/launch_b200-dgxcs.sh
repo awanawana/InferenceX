@@ -29,7 +29,7 @@ export SLURM_PARTITION="gpu"
 export SLURM_ACCOUNT="root"
 
 if [[ $MODEL_PREFIX == "dsr1" ]]; then
-    export MODEL_PATH="/lustre/fsw/models/dsr1-0528-nvfp4"
+    export MODEL_PATH="/lustre/fsw/models/dsr1-0528-nvfp4-v2"
     export SERVED_MODEL_NAME="deepseek-r1-fp4"
 else
     echo "Unsupported model prefix: $MODEL_PREFIX. Supported prefixes are: dsr1"
