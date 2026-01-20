@@ -66,7 +66,6 @@ pip install -q datasets pandas
 
 run_benchmark_serving \
     --model "$MODEL_NAME" \
-    --tokenizer "$MODEL" \
     --port "$PORT" \
     --backend vllm \
     --input-len "$ISL" \
