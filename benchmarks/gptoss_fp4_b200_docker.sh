@@ -46,7 +46,6 @@ export PYTHONNOUSERSITE=1
 export VLLM_USE_FLASHINFER_MOE_MXFP4_MXFP8=1
 
 SERVER_LOG=$(mktemp /tmp/server-XXXXXX.log)
-MODEL_NAME=${MODEL##*/}
 
 set -x
 vllm serve $MODEL --host 0.0.0.0 --port $PORT \
@@ -55,7 +54,7 @@ vllm serve $MODEL --host 0.0.0.0 --port $PORT \
 --tensor-parallel-size $TP \
 --max-num-seqs 512 \
 --disable-log-requests \
---served-model-name $MODEL_NAME > $SERVER_LOG 2>&1 &
+--served-model-name $MODEL > $SERVER_LOG 2>&1 &
 
 SERVER_PID=$!
 
@@ -65,7 +64,7 @@ wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$S
 pip install -q datasets pandas
 
 run_benchmark_serving \
-    --model "$MODEL_NAME" \
+    --model "$MODEL" \
     --port "$PORT" \
     --backend vllm \
     --input-len "$ISL" \

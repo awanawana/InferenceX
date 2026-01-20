@@ -27,7 +27,6 @@ export VLLM_ROCM_USE_AITER_MHA=0
 export VLLM_ROCM_USE_AITER_FUSED_MOE_A16W4=1
 
 SERVER_LOG=$(mktemp /tmp/server-XXXXXX.log)
-MODEL_NAME=${MODEL##*/}
 
 set -x
 vllm serve $MODEL --port $PORT \
@@ -39,7 +38,7 @@ vllm serve $MODEL --port $PORT \
 --block-size=64 \
 --no-enable-prefix-caching \
 --disable-log-requests \
---served-model-name $MODEL_NAME \
+--served-model-name $MODEL \
 --async-scheduling > $SERVER_LOG 2>&1 &
 
 SERVER_PID=$!
@@ -48,7 +47,7 @@ SERVER_PID=$!
 wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$SERVER_PID"
 
 run_benchmark_serving \
-    --model "$MODEL_NAME" \
+    --model "$MODEL" \
     --port "$PORT" \
     --backend vllm \
     --input-len "$ISL" \

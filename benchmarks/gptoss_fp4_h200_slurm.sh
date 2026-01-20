@@ -39,7 +39,7 @@ EOF
 SERVER_LOG=$(mktemp /tmp/server-XXXXXX.log)
 export TORCH_CUDA_ARCH_LIST="9.0"
 PORT=$(( 8888 + $PORT_OFFSET ))
-MODEL_NAME=${MODEL##*/}
+
 export VLLM_MXFP4_USE_MARLIN=1
 
 PYTHONNOUSERSITE=1 vllm serve $MODEL --host 0.0.0.0 --port $PORT \
@@ -48,7 +48,7 @@ PYTHONNOUSERSITE=1 vllm serve $MODEL --host 0.0.0.0 --port $PORT \
  --tensor-parallel-size $TP \
  --max-num-seqs $CONC  \
  --disable-log-requests \
- --served-model-name $MODEL_NAME > $SERVER_LOG 2>&1 &
+ --served-model-name $MODEL > $SERVER_LOG 2>&1 &
 
 SERVER_PID=$!
 
@@ -56,7 +56,7 @@ SERVER_PID=$!
 wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$SERVER_PID"
 
 run_benchmark_serving \
-    --model "$MODEL_NAME" \
+    --model "$MODEL" \
     --port "$PORT" \
     --backend vllm \
     --input-len "$ISL" \
