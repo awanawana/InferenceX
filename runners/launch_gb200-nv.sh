@@ -4,6 +4,8 @@
 
 set -x
 
+# TODO: once we confirm that the trtllm branch works we can merge it to main 
+# And start using mainline srtslurm for sglang and trtllm
 echo "Cloning srt-slurm-trtllm repository..."
 TRTLLM_REPO_DIR="srt-slurm-trtllm"
 if [ -d "$TRTLLM_REPO_DIR" ]; then
@@ -35,23 +37,11 @@ export SLURM_PARTITION="batch"
 export SLURM_ACCOUNT="benchmark"
 export SLURM_JOB_NAME="benchmark-dynamo.job"
 
-# For SGLang - we are working on updating the 8k1k configs 
-# For now we add conditionals to this script to use newer code for the 1k1k configs
-
-if [[ "$FRAMEWORK" == "dynamo-sglang" ]]; then
-    SQUASH_FILE="/mnt/lustre01/users/sa-shared/images/$(echo "$IMAGE" | sed 's/[\/:@#]/_/g').sqsh"
-    srun --partition=$SLURM_PARTITION --exclusive --time=180 bash -c "enroot import -o $SQUASH_FILE docker://$IMAGE"
-
-    # Update the IMAGE variable to the squash file
-    export IMAGE=$SQUASH_FILE
-fi
-
 # MODEL_PATH is set in `nvidia-master.yaml` or any other yaml files
 export MODEL_PATH=$MODEL
 
 if [[ $FRAMEWORK == "dynamo-sglang" ]]; then
     export CONFIG_DIR="/mnt/lustre01/artifacts/sglang-configs/1k1k"
-    export SGL_SLURM_JOBS_PATH="dynamo/examples/backends/sglang/slurm_jobs"
 elif [[ $FRAMEWORK == "dynamo-trt" ]]; then
     if [[ $MODEL_PREFIX == "gptoss" ]]; then
         export MODEL_PATH="/mnt/lustre01/models/gpt-oss-120b"
@@ -59,7 +49,7 @@ elif [[ $FRAMEWORK == "dynamo-trt" ]]; then
     elif [[ $MODEL_PREFIX == "dsr1" ]]; then
         export SERVED_MODEL_NAME="deepseek-r1-fp4"
     else
-        echo "Unsupported model prefix: $MODEL_PREFIX. Supported prefixes are: gptoss"
+        echo "Unsupported model prefix: $MODEL_PREFIX. Supported prefixes are: gptoss or dsr1"
         exit 1
     fi
 fi
@@ -67,10 +57,10 @@ fi
 export ISL="$ISL"
 export OSL="$OSL"
 
-if [[ "$FRAMEWORK" == "dynamo-trt" ]]; then
-    # Create srtslurm.yaml for srtctl
-    echo "Creating srtslurm.yaml configuration..."
-    cat > srtslurm.yaml <<EOF
+# Create srtslurm.yaml for srtctl (used by both frameworks)
+SRTCTL_ROOT="${GITHUB_WORKSPACE}/srt-slurm-trtllm"
+echo "Creating srtslurm.yaml configuration..."
+cat > srtslurm.yaml <<EOF
 # SRT SLURM Configuration for GB200
 
 # Default SLURM settings
@@ -79,143 +69,103 @@ default_partition: "${SLURM_PARTITION}"
 default_time_limit: "4:00:00"
 
 # Resource defaults
-gpus_per_node: 8
+gpus_per_node: 4
 network_interface: ""
 
 # Path to srtctl repo root (where the configs live)
-srtctl_root: "${GITHUB_WORKSPACE}/srt-slurm-trtllm"
+srtctl_root: "${SRTCTL_ROOT}"
 
 # Model path aliases
 model_paths:
   "${MODEL_PREFIX}": "${MODEL_PATH}"
 EOF
 
-    echo "Generated srtslurm.yaml:"
-    cat srtslurm.yaml
+echo "Generated srtslurm.yaml:"
+cat srtslurm.yaml
 
-    echo "Running make setup..."
-    make setup ARCH=aarch64
+echo "Running make setup..."
+make setup ARCH=aarch64
 
-    echo "Submitting job with srtctl..."
-    SRTCTL_OUTPUT=$(srtctl apply -f "$CONFIG_FILE" --tags "gb200,${MODEL_PREFIX},${PRECISION},${ISL}x${OSL},infmax-$(date +%Y%m%d)" 2>&1)
-    echo "$SRTCTL_OUTPUT"
+# these 2 lines are for debugging
+# TODO: remove when merge
+echo "Make setup complete"
+ls configs/
 
-    JOB_ID=$(echo "$SRTCTL_OUTPUT" | grep -oP '✅ Job \K[0-9]+' || echo "$SRTCTL_OUTPUT" | grep -oP 'Job \K[0-9]+')
+echo "Submitting job with srtctl..."
+SRTCTL_OUTPUT=$(srtctl apply -f "$CONFIG_FILE" --tags "gb200,${MODEL_PREFIX},${PRECISION},${ISL}x${OSL},infmax-$(date +%Y%m%d)" 2>&1)
+echo "$SRTCTL_OUTPUT"
 
-    if [ -z "$JOB_ID" ]; then
-        echo "Error: Failed to extract JOB_ID from srtctl output"
-        exit 1
-    fi
+JOB_ID=$(echo "$SRTCTL_OUTPUT" | grep -oP '✅ Job \K[0-9]+' || echo "$SRTCTL_OUTPUT" | grep -oP 'Job \K[0-9]+')
 
-    echo "Extracted JOB_ID: $JOB_ID"
+if [ -z "$JOB_ID" ]; then
+    echo "Error: Failed to extract JOB_ID from srtctl output"
+    exit 1
+fi
 
-    # Wait for this specific job to complete
-    echo "Waiting for job $JOB_ID to complete..."
-    while [ -n "$(squeue -j $JOB_ID --noheader 2>/dev/null)" ]; do
-        echo "Job $JOB_ID still running..."
-        squeue -j $JOB_ID
-        sleep 30
-    done
-    echo "Job $JOB_ID completed!"
+echo "Extracted JOB_ID: $JOB_ID"
 
-    echo "Collecting results..."
+# Wait for this specific job to complete
+echo "Waiting for job $JOB_ID to complete..."
+while [ -n "$(squeue -j $JOB_ID --noheader 2>/dev/null)" ]; do
+    echo "Job $JOB_ID still running..."
+    squeue -j $JOB_ID
+    sleep 30
+done
+echo "Job $JOB_ID completed!"
 
-    # Use the JOB_ID to find the logs directory
-    # srtctl creates logs in outputs/JOB_ID/logs/
-    LOGS_DIR="outputs/$JOB_ID/logs"
+echo "Collecting results..."
 
-    if [ ! -d "$LOGS_DIR" ]; then
-        echo "Warning: Logs directory not found at $LOGS_DIR"
-        exit 1
-    fi
+# Use the JOB_ID to find the logs directory
+# srtctl creates logs in outputs/JOB_ID/logs/
+LOGS_DIR="outputs/$JOB_ID/logs"
 
-    echo "Found logs directory: $LOGS_DIR"
+if [ ! -d "$LOGS_DIR" ]; then
+    echo "Warning: Logs directory not found at $LOGS_DIR"
+    exit 1
+fi
 
-    # Find all result subdirectories
-    RESULT_SUBDIRS=$(find "$LOGS_DIR" -maxdepth 1 -type d -name "*isl*osl*" 2>/dev/null)
+echo "Found logs directory: $LOGS_DIR"
 
-    if [ -z "$RESULT_SUBDIRS" ]; then
-        echo "Warning: No result subdirectories found in $LOGS_DIR"
-    else
-        # Process results from all configurations
-        for result_subdir in $RESULT_SUBDIRS; do
-            echo "Processing result subdirectory: $result_subdir"
+# Find all result subdirectories
+RESULT_SUBDIRS=$(find "$LOGS_DIR" -maxdepth 1 -type d -name "*isl*osl*" 2>/dev/null)
 
-            # Extract configuration info from directory name
-            CONFIG_NAME=$(basename "$result_subdir")
+if [ -z "$RESULT_SUBDIRS" ]; then
+    echo "Warning: No result subdirectories found in $LOGS_DIR"
+else
+    # Process results from all configurations
+    for result_subdir in $RESULT_SUBDIRS; do
+        echo "Processing result subdirectory: $result_subdir"
 
-            # Find all result JSON files
-            RESULT_FILES=$(find "$result_subdir" -name "results_concurrency_*.json" 2>/dev/null)
+        # Extract configuration info from directory name
+        CONFIG_NAME=$(basename "$result_subdir")
 
-            for result_file in $RESULT_FILES; do
-                if [ -f "$result_file" ]; then
-                    # Extract metadata from filename
-                    filename=$(basename "$result_file")
-                    concurrency=$(echo "$filename" | sed -n 's/results_concurrency_\([0-9]*\)_gpus_.*/\1/p')
-                    gpus=$(echo "$filename" | sed -n 's/results_concurrency_[0-9]*_gpus_\([0-9]*\)_ctx_.*/\1/p')
-                    ctx=$(echo "$filename" | sed -n 's/.*_ctx_\([0-9]*\)_gen_.*/\1/p')
-                    gen=$(echo "$filename" | sed -n 's/.*_gen_\([0-9]*\)\.json/\1/p')
+        # Find all result JSON files
+        RESULT_FILES=$(find "$result_subdir" -name "results_concurrency_*.json" 2>/dev/null)
 
-                    echo "Processing concurrency $concurrency with $gpus GPUs (ctx: $ctx, gen: $gen): $result_file"
+        for result_file in $RESULT_FILES; do
+            if [ -f "$result_file" ]; then
+                # Extract metadata from filename
+                filename=$(basename "$result_file")
+                concurrency=$(echo "$filename" | sed -n 's/results_concurrency_\([0-9]*\)_gpus_.*/\1/p')
+                gpus=$(echo "$filename" | sed -n 's/results_concurrency_[0-9]*_gpus_\([0-9]*\)_ctx_.*/\1/p')
+                ctx=$(echo "$filename" | sed -n 's/.*_ctx_\([0-9]*\)_gen_.*/\1/p')
+                gen=$(echo "$filename" | sed -n 's/.*_gen_\([0-9]*\)\.json/\1/p')
 
-                    WORKSPACE_RESULT_FILE="$GITHUB_WORKSPACE/${RESULT_FILENAME}_${CONFIG_NAME}_conc${concurrency}_gpus_${gpus}_ctx_${ctx}_gen_${gen}.json"
-                    cp "$result_file" "$WORKSPACE_RESULT_FILE"
+                echo "Processing concurrency $concurrency with $gpus GPUs (ctx: $ctx, gen: $gen): $result_file"
 
-                    echo "Copied result file to: $WORKSPACE_RESULT_FILE"
-                fi
-            done
+                WORKSPACE_RESULT_FILE="$GITHUB_WORKSPACE/${RESULT_FILENAME}_${CONFIG_NAME}_conc${concurrency}_gpus_${gpus}_ctx_${ctx}_gen_${gen}.json"
+                cp "$result_file" "$WORKSPACE_RESULT_FILE"
+
+                echo "Copied result file to: $WORKSPACE_RESULT_FILE"
+            fi
         done
-    fi
-
-    # Cleanup
-    echo "Cleaning up..."
-    deactivate 2>/dev/null || true
-    rm -rf .venv
-    echo "Cleanup complete"
-
-elif [[ "$FRAMEWORK" == "dynamo-sglang" ]]; then
-    bash benchmarks/"${EXP_NAME%%_*}_${PRECISION}_gb200_${FRAMEWORK}_slurm.sh"
-
-    # Wait for all jobs to complete
-    echo "Waiting for all jobs to complete..."
-    while [ -n "$(squeue -u $USER --noheader --format='%i')" ]; do
-        echo "Jobs still running..."
-        squeue --steps -u $USER
-        sleep 30
-    done
-
-    # FIXME: The below is bad and is a result of the indirection of the ways in which
-    # Dynamo jobs are launched. In a follow-up PR, the location of the result file should not
-    # depend on the runner, it should always be in the same spot in the GH workspace.
-
-    # Find the latest log directory that contains the data
-    cat > collect_latest_results.py <<'PY'
-import os, sys
-sgl_job_dir, isl, osl, nexp = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4])
-for path in sorted([f"{sgl_job_dir}/logs/{name}/vllm_isl_{isl}_osl_{osl}" for name in os.listdir(f"{sgl_job_dir}/logs/") if os.path.isdir(f"{sgl_job_dir}/logs/{name}/vllm_isl_{isl}_osl_{osl}")], key=os.path.getmtime, reverse=True)[:nexp]:
-    print(path)
-PY
-
-    LOGS_DIR=$(python3 collect_latest_results.py "$SGL_SLURM_JOBS_PATH" $ISL $OSL 1)
-    if [ -z "$LOGS_DIR" ]; then
-        echo "No logs directory found for ISL=${ISL}, OSL=${OSL}"
-        exit 1
-    fi
-
-    echo "Found logs directory: $LOGS_DIR"
-    ls -la $LOGS_DIR
-
-    # Result JSON are contained within the result directory
-    for result_file in $(find $LOGS_DIR -type f); do
-        # result_file should directly be isl_ISL_osl_OSL_concurrency_CONC_req_rate_R_gpus_N_ctx_M_gen_N.json
-        file_name=$(basename $result_file)
-        if [ -f $result_file ]; then
-            # Copy the result file to workspace with a unique name
-            WORKSPACE_RESULT_FILE="$GITHUB_WORKSPACE/${RESULT_FILENAME}_${file_name}"
-            echo "Found result file ${result_file}. Copying them to ${WORKSPACE_RESULT_FILE}"
-            cp $result_file $WORKSPACE_RESULT_FILE
-        fi
     done
 fi
+
+# Cleanup
+echo "Cleaning up..."
+deactivate 2>/dev/null || true
+rm -rf .venv
+echo "Cleanup complete"
 
 echo "All result files processed"
