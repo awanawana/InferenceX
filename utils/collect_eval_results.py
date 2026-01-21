@@ -165,7 +165,7 @@ def build_row(meta: Dict[str, Any], m: Dict[str, Any]) -> Dict[str, Any]:
         'tp': int(meta.get('tp', 1)),
         'ep': int(meta.get('ep', 1)),
         'conc': int(meta.get('conc', 0)),
-        'dp_attention': str(meta.get('dp_attention', False)).lower(),
+        'dp_attention': str(meta.get('dp_attention', "none")).lower(),
         'task': m.get('task', 'unknown'),
         'em_strict': m.get('strict'),
         'em_strict_se': m.get('strict_se'),
