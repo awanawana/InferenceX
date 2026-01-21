@@ -2,6 +2,9 @@
 
 # Shared benchmarking utilities for InferenceMAX
 
+# Global variable to store wait_for_server_ready timing (in seconds)
+WAIT_FOR_SERVER_READY_DURATION_SECONDS=""
+
 # Check if required environment variables are set
 # Usage: check_env_vars VAR1 VAR2 VAR3 ...
 # Exits with code 1 if any variable is not set
@@ -30,6 +33,8 @@ check_env_vars() {
 #   --server-log: Path to server log file
 #   --server-pid: Server process ID (required)
 #   --sleep-interval: Sleep interval between health checks (optional, default: 5)
+# Side effects:
+#   Sets WAIT_FOR_SERVER_READY_DURATION_SECONDS global variable with the duration in seconds
 wait_for_server_ready() {
     set +x
     local port=""
@@ -77,6 +82,9 @@ wait_for_server_ready() {
         return 1
     fi
 
+    # Record start time for timing measurement
+    local wait_start_time=$(date +%s.%N)
+
     # Show logs until server is ready
     tail -f -n +1 "$server_log" &
     local TAIL_PID=$!
@@ -89,6 +97,11 @@ wait_for_server_ready() {
         sleep "$sleep_interval"
     done
     kill $TAIL_PID
+
+    # Calculate duration and store in global variable
+    local wait_end_time=$(date +%s.%N)
+    WAIT_FOR_SERVER_READY_DURATION_SECONDS=$(echo "$wait_end_time - $wait_start_time" | bc)
+    echo "wait_for_server_ready completed in ${WAIT_FOR_SERVER_READY_DURATION_SECONDS} seconds"
 }
 
 # Run benchmark serving with standardized parameters
@@ -259,4 +272,134 @@ run_benchmark_serving() {
     set -x
     "${benchmark_cmd[@]}"
     set +x
+}
+
+# Output server startup metrics to a JSON file
+# Parameters:
+#   --launch-server-seconds: Time in seconds for server launch (optional)
+#   --wait-for-ready-seconds: Time in seconds waiting for server to be ready (optional, uses global var if not provided)
+#   --result-filename: Base result filename (without extension)
+#   --result-dir: Directory to write the metrics file
+#   --model: Model name
+#   --framework: Framework name (e.g., sglang, vllm, trt)
+#   --runner: Runner type (e.g., h200, b200)
+#   --precision: Precision (e.g., fp8, fp4)
+output_server_startup_metrics() {
+    local launch_server_seconds=""
+    local wait_for_ready_seconds=""
+    local result_filename=""
+    local result_dir=""
+    local model=""
+    local framework=""
+    local runner=""
+    local precision=""
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --launch-server-seconds)
+                launch_server_seconds="$2"
+                shift 2
+                ;;
+            --wait-for-ready-seconds)
+                wait_for_ready_seconds="$2"
+                shift 2
+                ;;
+            --result-filename)
+                result_filename="$2"
+                shift 2
+                ;;
+            --result-dir)
+                result_dir="$2"
+                shift 2
+                ;;
+            --model)
+                model="$2"
+                shift 2
+                ;;
+            --framework)
+                framework="$2"
+                shift 2
+                ;;
+            --runner)
+                runner="$2"
+                shift 2
+                ;;
+            --precision)
+                precision="$2"
+                shift 2
+                ;;
+            *)
+                echo "Unknown parameter: $1"
+                return 1
+                ;;
+        esac
+    done
+
+    # Use global variable if wait_for_ready_seconds not provided
+    if [[ -z "$wait_for_ready_seconds" && -n "$WAIT_FOR_SERVER_READY_DURATION_SECONDS" ]]; then
+        wait_for_ready_seconds="$WAIT_FOR_SERVER_READY_DURATION_SECONDS"
+    fi
+
+    # Validate required parameters
+    if [[ -z "$result_filename" ]]; then
+        echo "Error: --result-filename is required"
+        return 1
+    fi
+    if [[ -z "$result_dir" ]]; then
+        echo "Error: --result-dir is required"
+        return 1
+    fi
+
+    # Convert seconds to minutes for display
+    local launch_server_minutes=""
+    local wait_for_ready_minutes=""
+    local total_startup_seconds=""
+    local total_startup_minutes=""
+
+    if [[ -n "$launch_server_seconds" ]]; then
+        launch_server_minutes=$(echo "scale=2; $launch_server_seconds / 60" | bc)
+    fi
+
+    if [[ -n "$wait_for_ready_seconds" ]]; then
+        wait_for_ready_minutes=$(echo "scale=2; $wait_for_ready_seconds / 60" | bc)
+    fi
+
+    # Calculate total if both are available
+    if [[ -n "$launch_server_seconds" && -n "$wait_for_ready_seconds" ]]; then
+        total_startup_seconds=$(echo "$launch_server_seconds + $wait_for_ready_seconds" | bc)
+        total_startup_minutes=$(echo "scale=2; $total_startup_seconds / 60" | bc)
+    fi
+
+    # Create the metrics JSON file
+    local metrics_file="${result_dir}/startup_metrics_${result_filename}.json"
+
+    cat > "$metrics_file" << EOF
+{
+    "model": "${model:-unknown}",
+    "framework": "${framework:-unknown}",
+    "runner": "${runner:-unknown}",
+    "precision": "${precision:-unknown}",
+    "launch_server_duration_seconds": ${launch_server_seconds:-null},
+    "launch_server_duration_minutes": ${launch_server_minutes:-null},
+    "wait_for_server_ready_duration_seconds": ${wait_for_ready_seconds:-null},
+    "wait_for_server_ready_duration_minutes": ${wait_for_ready_minutes:-null},
+    "total_startup_duration_seconds": ${total_startup_seconds:-null},
+    "total_startup_duration_minutes": ${total_startup_minutes:-null},
+    "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+EOF
+
+    echo "Server startup metrics written to: $metrics_file"
+    echo "--- Server Startup Metrics Summary ---"
+    if [[ -n "$launch_server_minutes" ]]; then
+        echo "  launch_server duration: ${launch_server_minutes} minutes (${launch_server_seconds} seconds)"
+    fi
+    if [[ -n "$wait_for_ready_minutes" ]]; then
+        echo "  wait_for_server_ready duration: ${wait_for_ready_minutes} minutes (${wait_for_ready_seconds} seconds)"
+    fi
+    if [[ -n "$total_startup_minutes" ]]; then
+        echo "  Total startup duration: ${total_startup_minutes} minutes (${total_startup_seconds} seconds)"
+    fi
+    echo "--------------------------------------"
 }

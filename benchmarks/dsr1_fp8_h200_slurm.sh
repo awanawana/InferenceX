@@ -22,6 +22,9 @@ SERVER_LOG=$(mktemp /tmp/server-XXXXXX.log)
 
 export TORCH_CUDA_ARCH_LIST="9.0"
 
+# Record start time for sglang.launch_server
+LAUNCH_SERVER_START_TIME=$(date +%s.%N)
+
 set -x
 if [[ $ISL -eq 1024 && $OSL -eq 1024 ]]; then
     PYTHONNOUSERSITE=1 python3 -m sglang.launch_server --model-path $MODEL --tokenizer-path $MODEL \
@@ -42,11 +45,27 @@ else
     --decode-log-interval 1 \
     > $SERVER_LOG 2>&1 &
 fi
+set +x
 
 SERVER_PID=$!
 
-# Wait for server to be ready
+# Calculate launch_server duration (time from starting server process to before wait_for_server_ready)
+LAUNCH_SERVER_END_TIME=$(date +%s.%N)
+LAUNCH_SERVER_DURATION_SECONDS=$(echo "$LAUNCH_SERVER_END_TIME - $LAUNCH_SERVER_START_TIME" | bc)
+echo "sglang.launch_server process started in ${LAUNCH_SERVER_DURATION_SECONDS} seconds"
+
+# Wait for server to be ready (this function sets WAIT_FOR_SERVER_READY_DURATION_SECONDS)
 wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$SERVER_PID"
+
+# Output server startup metrics
+output_server_startup_metrics \
+    --launch-server-seconds "$LAUNCH_SERVER_DURATION_SECONDS" \
+    --result-filename "$RESULT_FILENAME" \
+    --result-dir /workspace/ \
+    --model "$MODEL" \
+    --framework "sglang" \
+    --runner "h200" \
+    --precision "${PRECISION:-fp8}"
 
 run_benchmark_serving \
     --model "$MODEL" \
