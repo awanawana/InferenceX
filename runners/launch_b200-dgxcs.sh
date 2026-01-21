@@ -29,7 +29,14 @@ export SLURM_PARTITION="gpu"
 export SLURM_ACCOUNT="root"
 
 if [[ $MODEL_PREFIX == "dsr1" ]]; then
-    export MODEL_PATH=$LOCAL_MODEL_PATH
+    if [[ $PRECISION == "fp4" ]]; then
+        export MODEL_PATH="/lustre/fsw/models/dsr1-0528-nvfp4-v2"
+    elif [[ $PRECISION == "fp8" ]]; then
+        export MODEL_PATH="/lustre/fsw/models/dsr1-0528-fp8"
+    else
+        echo "Unsupported precision: $PRECISION. Supported precisions are: fp4, fp8"
+        exit 1
+    fi
     export SERVED_MODEL_NAME=$MODEL
 else
     echo "Unsupported model prefix: $MODEL_PREFIX. Supported prefixes are: dsr1"
