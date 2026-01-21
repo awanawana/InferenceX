@@ -2,6 +2,111 @@
 
 # Shared benchmarking utilities for InferenceMAX
 
+# Global timing variables for server launch measurements
+_LAUNCH_SERVER_START_TIME=""
+_LAUNCH_SERVER_END_TIME=""
+_WAIT_FOR_SERVER_START_TIME=""
+_WAIT_FOR_SERVER_END_TIME=""
+
+# Get current time in seconds with nanosecond precision
+get_timestamp_seconds() {
+    date +%s.%N
+}
+
+# Mark the start of server launch
+mark_launch_server_start() {
+    _LAUNCH_SERVER_START_TIME=$(get_timestamp_seconds)
+}
+
+# Mark the end of server launch (when process starts, before it's ready)
+mark_launch_server_end() {
+    _LAUNCH_SERVER_END_TIME=$(get_timestamp_seconds)
+}
+
+# Mark the start of wait_for_server_ready
+mark_wait_for_server_start() {
+    _WAIT_FOR_SERVER_START_TIME=$(get_timestamp_seconds)
+}
+
+# Mark the end of wait_for_server_ready
+mark_wait_for_server_end() {
+    _WAIT_FOR_SERVER_END_TIME=$(get_timestamp_seconds)
+}
+
+# Calculate duration in minutes from two timestamps
+calculate_duration_minutes() {
+    local start_time=$1
+    local end_time=$2
+    if [[ -n "$start_time" && -n "$end_time" ]]; then
+        echo "scale=4; ($end_time - $start_time) / 60" | bc
+    else
+        echo "null"
+    fi
+}
+
+# Write launch timing data to a JSON file
+# Parameters:
+#   --output-file: Path to the output JSON file
+#   --config-name: Name of the config being benchmarked (optional)
+write_launch_timing_json() {
+    local output_file=""
+    local config_name=""
+
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --output-file)
+                output_file="$2"
+                shift 2
+                ;;
+            --config-name)
+                config_name="$2"
+                shift 2
+                ;;
+            *)
+                echo "Unknown parameter: $1"
+                return 1
+                ;;
+        esac
+    done
+
+    if [[ -z "$output_file" ]]; then
+        echo "Error: --output-file is required"
+        return 1
+    fi
+
+    local launch_server_duration_min
+    local wait_for_server_duration_min
+    local total_startup_duration_min
+
+    launch_server_duration_min=$(calculate_duration_minutes "$_LAUNCH_SERVER_START_TIME" "$_LAUNCH_SERVER_END_TIME")
+    wait_for_server_duration_min=$(calculate_duration_minutes "$_WAIT_FOR_SERVER_START_TIME" "$_WAIT_FOR_SERVER_END_TIME")
+
+    # Calculate total startup time (from launch start to server ready)
+    if [[ -n "$_LAUNCH_SERVER_START_TIME" && -n "$_WAIT_FOR_SERVER_END_TIME" ]]; then
+        total_startup_duration_min=$(calculate_duration_minutes "$_LAUNCH_SERVER_START_TIME" "$_WAIT_FOR_SERVER_END_TIME")
+    else
+        total_startup_duration_min="null"
+    fi
+
+    # Write JSON output
+    cat > "$output_file" << EOF
+{
+    "config_name": "${config_name:-unknown}",
+    "launch_server_duration_minutes": ${launch_server_duration_min},
+    "wait_for_server_ready_duration_minutes": ${wait_for_server_duration_min},
+    "total_startup_duration_minutes": ${total_startup_duration_min},
+    "timestamps": {
+        "launch_server_start": ${_LAUNCH_SERVER_START_TIME:-null},
+        "launch_server_end": ${_LAUNCH_SERVER_END_TIME:-null},
+        "wait_for_server_start": ${_WAIT_FOR_SERVER_START_TIME:-null},
+        "wait_for_server_end": ${_WAIT_FOR_SERVER_END_TIME:-null}
+    }
+}
+EOF
+
+    echo "Launch timing data written to: $output_file"
+}
+
 # Check if required environment variables are set
 # Usage: check_env_vars VAR1 VAR2 VAR3 ...
 # Exits with code 1 if any variable is not set

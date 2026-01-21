@@ -30,6 +30,9 @@ export SGLANG_USE_AITER=1
 
 SERVER_LOG=$(mktemp /tmp/server-XXXXXX.log)
 
+# Mark the start of server launch
+mark_launch_server_start
+
 set -x
 python3 -m sglang.launch_server \
 --model-path=$MODEL --host=0.0.0.0 --port=$PORT --trust-remote-code \
@@ -42,9 +45,24 @@ python3 -m sglang.launch_server \
 --disable-radix-cache > $SERVER_LOG 2>&1 &
 
 SERVER_PID=$!
+set +x
+
+# Mark the end of launch_server command (process started, but not ready yet)
+mark_launch_server_end
+
+# Mark the start of wait_for_server_ready
+mark_wait_for_server_start
 
 # Wait for server to be ready
 wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$SERVER_PID"
+
+# Mark the end of wait_for_server_ready
+mark_wait_for_server_end
+
+# Write launch timing data to JSON file
+write_launch_timing_json \
+    --output-file "/workspace/launch_timing_${RESULT_FILENAME}.json" \
+    --config-name "$RESULT_FILENAME"
 
 run_benchmark_serving \
     --model "$MODEL" \
