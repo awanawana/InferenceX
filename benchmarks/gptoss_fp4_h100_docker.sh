@@ -13,8 +13,6 @@ check_env_vars \
     RANDOM_RANGE_RATIO \
     RESULT_FILENAME
 
-
-# Create a basic vLLM config
 cat > config.yaml << EOF
 async-scheduling: true
 no-enable-prefix-caching: true
@@ -33,8 +31,7 @@ vllm serve $MODEL --host=0.0.0.0 --port=$PORT \
 --gpu-memory-utilization=0.9 \
 --tensor-parallel-size=$TP \
 --max-num-seqs=$CONC  \
---disable-log-requests \
---served-model-name $MODEL > $SERVER_LOG 2>&1 &
+--disable-log-requests > $SERVER_LOG 2>&1 &
 
 SERVER_PID=$!
 

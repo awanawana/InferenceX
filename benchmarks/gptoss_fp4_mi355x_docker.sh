@@ -37,7 +37,6 @@ vllm serve $MODEL --port $PORT \
 --block-size=64 \
 --no-enable-prefix-caching \
 --disable-log-requests \
---served-model-name $MODEL \
 --async-scheduling > $SERVER_LOG 2>&1 &
 
 SERVER_PID=$!

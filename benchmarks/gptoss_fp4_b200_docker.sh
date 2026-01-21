@@ -52,8 +52,7 @@ vllm serve $MODEL --host 0.0.0.0 --port $PORT \
 --gpu-memory-utilization 0.9 \
 --tensor-parallel-size $TP \
 --max-num-seqs 512 \
---disable-log-requests \
---served-model-name $MODEL > $SERVER_LOG 2>&1 &
+--disable-log-requests > $SERVER_LOG 2>&1 &
 
 SERVER_PID=$!
 
