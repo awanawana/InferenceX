@@ -1,8 +1,8 @@
 dsr1-fp4-b200-dynamo-trt:
-  image: nvcr.io#nvidia/ai-dynamo/tensorrtllm-runtime:0.8.0
+  image: nvcr.io/nvidia/ai-dynamo/tensorrtllm-runtime:0.8.0
   model: deepseek-r1-fp4
   model-prefix: dsr1
-  runner: b200-test
+  runner: b200-multinode-slurm
   precision: fp4
   framework: dynamo-trt
   multinode: true
@@ -359,10 +359,10 @@ dsr1-fp4-b200-dynamo-trt:
         dp-attn: true
 
 dsr1-fp8-b200-dynamo-trt:
-  image: nvcr.io#nvidia/ai-dynamo/tensorrtllm-runtime:0.8.0
+  image: nvcr.io/nvidia/ai-dynamo/tensorrtllm-runtime:0.8.0
   model: deepseek-r1-fp8
   model-prefix: dsr1
-  runner: b200-test
+  runner: b200-multinode-slurm
   precision: fp8
   framework: dynamo-trt
   multinode: true

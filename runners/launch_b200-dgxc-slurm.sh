@@ -2,16 +2,16 @@
 
 set -x
 
-echo "Cloning srt-slurm-trtllm repository..."
-TRTLLM_REPO_DIR="srt-slurm-trtllm"
-if [ -d "$TRTLLM_REPO_DIR" ]; then
-    echo "Removing existing $TRTLLM_REPO_DIR..."
-    rm -rf "$TRTLLM_REPO_DIR"
+SRT_REPO_DIR="srt-slurm"
+echo "Cloning $SRT_REPO_DIR repository..."
+if [ -d "$SRT_REPO_DIR" ]; then
+    echo "Removing existing $SRT_REPO_DIR..."
+    rm -rf "$SRT_REPO_DIR"
 fi
 
-git clone https://github.com/jthomson04/srt-slurm-trtllm.git "$TRTLLM_REPO_DIR"
-cd "$TRTLLM_REPO_DIR"
-git checkout jthomson04/trtllm-support
+git clone https://github.com/ishandhanani/srt-slurm.git "$SRT_REPO_DIR"
+cd "$SRT_REPO_DIR"
+git checkout jthomson04/trtllm
 
 echo "Installing srtctl..."
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -26,7 +26,7 @@ if ! command -v srtctl &> /dev/null; then
     exit 1
 fi
 
-echo "Configs available at: $TRTLLM_REPO_DIR/"
+echo "Configs available at: $SRT_REPO_DIR/"
 
 export SLURM_PARTITION="gpu"
 export SLURM_ACCOUNT="root"
@@ -66,7 +66,7 @@ gpus_per_node: 8
 network_interface: ""
 
 # Path to srtctl repo root (where the configs live)
-srtctl_root: "${GITHUB_WORKSPACE}/srt-slurm-trtllm"
+srtctl_root: "${GITHUB_WORKSPACE}/${SRT_REPO_DIR}"
 
 # Model path aliases
 model_paths:
@@ -89,7 +89,7 @@ echo "Submitting job with srtctl..."
 SRTCTL_OUTPUT=$(srtctl apply -f "$CONFIG_FILE" --tags "b200,dsr1,fp8,${ISL}x${OSL},infmax-$(date +%Y%m%d)" 2>&1)
 echo "$SRTCTL_OUTPUT"
 
-# Extract JOB_ID from srtctl output (e.g., "✅ Job 1168 submitted!")
+# Extract JOB_ID from srtctl output
 JOB_ID=$(echo "$SRTCTL_OUTPUT" | grep -oP '✅ Job \K[0-9]+' || echo "$SRTCTL_OUTPUT" | grep -oP 'Job \K[0-9]+')
 
 if [ -z "$JOB_ID" ]; then
@@ -127,7 +127,7 @@ fi
 
 echo "Found logs directory: $LOGS_DIR"
 
-# Find all result subdirectories (e.g., sa-bench_isl_8192_osl_1024)
+# Find all result subdirectories
 RESULT_SUBDIRS=$(find "$LOGS_DIR" -maxdepth 1 -type d -name "*isl*osl*" 2>/dev/null)
 
 if [ -z "$RESULT_SUBDIRS" ]; then
@@ -140,7 +140,7 @@ else
         # Extract configuration info from directory name
         CONFIG_NAME=$(basename "$result_subdir")
 
-        # Find all result JSON files (e.g., results_concurrency_128_gpus_16_ctx_8_gen_8.json)
+        # Find all result JSON files
         RESULT_FILES=$(find "$result_subdir" -name "results_concurrency_*.json" 2>/dev/null)
 
         for result_file in $RESULT_FILES; do
