@@ -36,7 +36,11 @@ if [[ "$IS_MULTINODE" == "true" ]]; then
 
     export SGL_SLURM_JOBS_PATH="sglang_disagg"
 
-    export MODEL_NAME="DeepSeek-R1"
+    if [[ $PRECISION == "fp4" ]]; then
+        export MODEL_NAME="DeepSeek-R1-0528-MXFP4-Preview"
+    else
+        export MODEL_NAME="DeepSeek-R1"
+    fi
     export MODEL_PATH="/nfsdata"
 
     NODENAME=$(sinfo -N -h -t idle,mix -o "%N" | head -1)
