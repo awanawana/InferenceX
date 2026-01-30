@@ -1257,6 +1257,12 @@ async def main() -> None:
         default=None,
         help="Output JSON file containing conversations with updated assistant answers",
     )
+    parser.add_argument(
+        "--responses-file",
+        type=str,
+        default=None,
+        help="Output JSON file with original prompts and server responses side-by-side",
+    )
 
     parser.add_argument(
         "--seed",
@@ -1488,6 +1494,7 @@ async def main() -> None:
     # Convert WildChat format to ConversationsMap
     # WildChat format: {"conversation_hash": str, "conversation": [...], ...}
     conversations: ConversationsMap = {}
+    original_conversations: ConversationsMap = {}  # Keep original for responses file
     for item in input_data:
         conv_id = item["conversation_hash"]
         # Extract only role and content from each message
@@ -1496,6 +1503,11 @@ async def main() -> None:
             for msg in item["conversation"]
         ]
         conversations[conv_id] = messages
+        # Deep copy for original reference
+        original_conversations[conv_id] = [
+            {"role": msg["role"], "content": msg["content"]}
+            for msg in item["conversation"]
+        ]
 
     logger.info(f"Loaded {len(conversations)} unique conversations")
 
@@ -1618,6 +1630,33 @@ async def main() -> None:
         )
         with open(args.output_file, "w") as f:
             json.dump(output_data, f, indent=4)
+
+    if args.responses_file is not None:
+        # Write a JSON file with original prompts and server responses side-by-side
+        responses_data = []
+        for conv_id, server_messages in client_convs.items():
+            original_messages = original_conversations.get(conv_id, [])
+            # Extract user prompts and server responses
+            entry = {
+                "conversation_hash": conv_id,
+                "turns": []
+            }
+            for i, msg in enumerate(server_messages):
+                if msg["role"] == "user":
+                    turn = {"user": msg["content"]}
+                    # Get the server's response (next message should be assistant)
+                    if i + 1 < len(server_messages) and server_messages[i + 1]["role"] == "assistant":
+                        turn["server_response"] = server_messages[i + 1]["content"]
+                        # Get original assistant response if available
+                        if i + 1 < len(original_messages):
+                            turn["original_assistant"] = original_messages[i + 1]["content"]
+                    entry["turns"].append(turn)
+            responses_data.append(entry)
+        logger.info(
+            f"{Color.GREEN}Writing responses file: {args.responses_file}{Color.RESET}"
+        )
+        with open(args.responses_file, "w") as f:
+            json.dump(responses_data, f, indent=2, ensure_ascii=False)
 
 
 if __name__ == "__main__":
