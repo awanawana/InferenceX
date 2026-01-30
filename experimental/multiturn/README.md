@@ -28,3 +28,8 @@ salloc: Nodes worker-1 are ready for job
 
 srun --jobid=5186 --container-image=$IMAGE   --container-name=$(echo "$IMAGE" | sed 's/[\/:@#]/_/g')-${USER: -1}   --container-mounts=$GITHUB_WORKSPACE:/workspace/,$HF_HUB_CACHE_MOUNT:$HF_HUB_CACHE   --no-container-mount-home   --container-remap-root   --container-writable   --container-workdir=/workspace/   --no-container-entrypoint   --export=ALL,PORT=$(( 8888 + ${USER: -1} )),UCX_NET_DEVICES=eth0   --pty bash
 ```
+
+## Possible Datasets
+
+- DeepSeek R1 coding with reasoning for programming competition https://huggingface.co/datasets/open-r1/codeforces-cots
+- 

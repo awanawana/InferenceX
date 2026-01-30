@@ -21,13 +21,7 @@ import pandas as pd  # type: ignore
 from bench_dataset import (
     ConversationsMap,
     ConvId,
-    GenConvArgs,
     MessagesList,
-    ShareGptConversations,
-    conversations_dict_to_list,
-    conversations_list_to_dict,
-    generate_conversations,
-    parse_input_json_file,
 )
 from bench_utils import TEXT_SEPARATOR, Color, logger
 from transformers import AutoTokenizer  # type: ignore
@@ -1074,7 +1068,6 @@ def process_statistics(
     warmup_percentages: list[float],
     test_params: dict,
     verbose: bool,
-    gen_conv_args: GenConvArgs | None = None,
     excel_output: bool = False,
     warmup_runtime_sec: float | None = None,
 ) -> None:
@@ -1131,24 +1124,6 @@ def process_statistics(
     print(f"{Color.YELLOW}Parameters:{Color.RESET}")
     for k, v in test_params.items():
         print(f"{k}={v}")
-
-    # conversations generation parameters
-    if gen_conv_args is not None:
-        gen_params = {
-            "text_files": ", ".join(gen_conv_args.text_files),
-            "input_num_turns": str(gen_conv_args.input_num_turns),
-            "input_common_prefix_num_tokens": str(
-                gen_conv_args.input_common_prefix_num_tokens
-            ),
-            "input_prefix_num_tokens": str(gen_conv_args.input_prefix_num_tokens),
-            "input_num_tokens": str(gen_conv_args.input_num_tokens),
-            "output_num_tokens": str(gen_conv_args.output_num_tokens),
-        }
-
-        print(f"{Color.YELLOW}Conversations Generation Parameters:{Color.RESET}")
-        for k, v in gen_params.items():
-            print(f"{k}={v}")
-
     print(TEXT_SEPARATOR)
 
     params_list = []
@@ -1215,13 +1190,6 @@ def process_statistics(
             )
             startrow += len(test_params_df) + 3
 
-            if gen_conv_args is not None:
-                gen_params_df = pd.DataFrame([gen_params])
-                gen_params_df.to_excel(
-                    writer, sheet_name="Summary", index=False, startrow=(startrow - 1)
-                )
-                startrow += len(gen_params_df) + 3
-
             for params, df_stats in zip(params_list, df_list):
                 df_params = pd.DataFrame([params])
                 df_params.to_excel(
@@ -1280,8 +1248,7 @@ async def main() -> None:
         "--input-file",
         type=str,
         required=True,
-        help="Input JSON file with ShareGPT conversations or "
-        "configuration file for generation of synthetic conversations",
+        help="Input JSON file with WildChat conversations (from sample_wildchat.py)",
     )
     parser.add_argument(
         "-o",
@@ -1508,40 +1475,29 @@ async def main() -> None:
 
     await get_server_info(args.url)
 
-    # Load the input file (either conversations of configuration file)
+    # Load the input file (WildChat format from sample_wildchat.py)
     logger.info(f"Reading input file: {args.input_file}")
     with open(args.input_file) as f:
         input_data = json.load(f)
 
-    gen_conv_args = None
-    if isinstance(input_data, list):
-        # The conversations are stored as a list of dicts
-        logger.info(f"Found {len(input_data)} items in the input file")
+    if not isinstance(input_data, list):
+        raise Exception(f"Input file {args.input_file} must be a JSON array")
 
-        # Convert the list to a ConversationsMap
-        conversations = conversations_list_to_dict(input_data)
+    logger.info(f"Found {len(input_data)} conversations in the input file")
 
-    elif isinstance(input_data, dict):
-        # The input file is a configuration file
-        # (type is determined by the field 'filetype')
-        if "filetype" not in input_data:
-            raise Exception(
-                f"Input file {args.input_file} is invalid (missing 'filetype')"
-            )
+    # Convert WildChat format to ConversationsMap
+    # WildChat format: {"conversation_hash": str, "conversation": [...], ...}
+    conversations: ConversationsMap = {}
+    for item in input_data:
+        conv_id = item["conversation_hash"]
+        # Extract only role and content from each message
+        messages: MessagesList = [
+            {"role": msg["role"], "content": msg["content"]}
+            for msg in item["conversation"]
+        ]
+        conversations[conv_id] = messages
 
-        logger.info(f"Using input file with filetype: {input_data['filetype']}")
-
-        gen_conv_args = parse_input_json_file(input_data)
-
-        # Disable warning from "huggingface/tokenizers"
-        # (when using python multiprocessing and tokenizers)
-        os.environ["TOKENIZERS_PARALLELISM"] = "true"
-
-        # Generate synthetic conversations
-        conversations = generate_conversations(gen_conv_args, tokenizer)
-
-    else:
-        raise Exception(f"Input file {args.input_file} is invalid")
+    logger.info(f"Loaded {len(conversations)} unique conversations")
 
     if args.max_turns is not None:
         if args.max_turns < 1:
@@ -1646,7 +1602,6 @@ async def main() -> None:
         test_params=params,
         warmup_percentages=warmup_percentages,
         verbose=args.verbose,
-        gen_conv_args=gen_conv_args,
         excel_output=args.excel_output,
         warmup_runtime_sec=warmup_runtime_sec,
     )
@@ -1654,7 +1609,10 @@ async def main() -> None:
     if args.output_file is not None:
         # Write a JSON file with the updated conversations
         # The "assistant" content will contain the answers from the tested LLM
-        output_data: ShareGptConversations = conversations_dict_to_list(client_convs)
+        output_data = [
+            {"id": conv_id, "messages": messages}
+            for conv_id, messages in client_convs.items()
+        ]
         logger.info(
             f"{Color.GREEN}Writing conversations file: {args.output_file}{Color.RESET}"
         )
