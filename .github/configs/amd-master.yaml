@@ -631,10 +631,10 @@ dsr1-fp8-mi355x-sglang-disagg:
   
 dsr1-fp4-mi355x-sglang-disagg:
   image: rocm/sgl-dev:main-ec76c-rocm700-mi35x-0131
-  model: deepseek-ai/DeepSeek-R1-0528
+  model: amd/DeepSeek-R1-0528-MXFP4
   model-prefix: dsr1
   runner: mi355x-disagg
-  precision: fp8
+  precision: fp4
   framework: sglang-disagg
   multinode: true
   disagg: true
