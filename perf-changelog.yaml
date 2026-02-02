@@ -337,5 +337,5 @@
   description:
     - "Add DSR1 FP8 GB300 Dynamo SGLang disaggregated multinode configuration"
     - "Image: lmsysorg/sglang:v0.5.8-cu130-runtime"
-    - "Recipes: 1k1k (low-latency, mid, max) and 8k1k (low-latency, mid, max)"
+    - "Recipes: 1k1k, 1k8k, and 8k1k (low-latency, mid, max)"
   pr-link: https://github.com/InferenceMAX/InferenceMAX/pull/618
