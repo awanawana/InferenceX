@@ -24,6 +24,7 @@ from bench_dataset import (
     MessagesList,
 )
 from bench_utils import TEXT_SEPARATOR, Color, logger
+from metrics_collector import MetricsCollector
 from transformers import AutoTokenizer  # type: ignore
 
 NUM_TOKENS_FROM_DATASET = 0
@@ -502,9 +503,10 @@ async def send_turn(
             if orig_content != output_content:
                 raise ValueError(debug_info)
 
-        # Update the answer
-        conversation_messages[answer_index]["content"] = output_content
-    else:
+        # Update the answer (only if we got actual content from server)
+        if output_content:
+            conversation_messages[answer_index]["content"] = output_content
+    elif output_content:
         # A user prompt that has no answer, add the answer as a new message
         new_answer = {"role": "assistant", "content": output_content}
         conversation_messages.append(new_answer)
@@ -1435,6 +1437,33 @@ async def main() -> None:
         "(for example: --warmup-percentages=0%%,50%%)",
     )
 
+    parser.add_argument(
+        "--backend",
+        type=str,
+        choices=["vllm"],
+        default="vllm",
+        help="Backend server type (default: vllm). Only 'vllm' is supported for now.",
+    )
+    parser.add_argument(
+        "--metrics-poll-interval",
+        type=float,
+        default=1.0,
+        help="Interval in seconds for polling server metrics (default: 1.0)",
+    )
+    parser.add_argument(
+        "--metrics-output",
+        type=str,
+        default="metrics",
+        help="Output prefix for metrics plots (default: 'metrics'). "
+        "Will generate <prefix>_plots.png",
+    )
+    parser.add_argument(
+        "--no-metrics",
+        default=False,
+        action="store_true",
+        help="Disable metrics collection during benchmark",
+    )
+
     args = parser.parse_args()
 
     logger.info(args)
@@ -1528,6 +1557,18 @@ async def main() -> None:
 
     warmup_runtime_sec: float | None = None
 
+    # Initialize metrics collector (for vllm backend)
+    metrics_collector: MetricsCollector | None = None
+    if not args.no_metrics and args.backend == "vllm":
+        metrics_collector = MetricsCollector(
+            base_url=args.url,
+            poll_interval=args.metrics_poll_interval,
+        )
+        logger.info(
+            f"{Color.BLUE}Metrics collection enabled "
+            f"(poll interval: {args.metrics_poll_interval}s){Color.RESET}"
+        )
+
     # Warm-up step
     if args.warmup_step:
         # Only send a single user prompt from every conversation.
@@ -1557,12 +1598,23 @@ async def main() -> None:
         )
         logger.info("%sWarmup done%s", Color.PURPLE, Color.RESET)
 
+    # Start metrics collection
+    if metrics_collector is not None:
+        metrics_collector.start()
+        logger.info(f"{Color.BLUE}Started metrics collection{Color.RESET}")
+
     # Run the benchmark
     benchmark_start_ns = time.perf_counter_ns()
     client_convs, client_metrics = await main_mp(
         client_args, req_args, bench_args, tokenizer, conversations
     )
     benchmark_runtime_sec = nanosec_to_sec(time.perf_counter_ns() - benchmark_start_ns)
+
+    # Stop metrics collection and generate plots
+    if metrics_collector is not None:
+        await metrics_collector.stop()
+        logger.info(f"{Color.BLUE}Stopped metrics collection{Color.RESET}")
+        metrics_collector.generate_plots(output_prefix=args.metrics_output)
 
     # Calculate requests per second
     requests_per_sec = len(client_metrics) / benchmark_runtime_sec
