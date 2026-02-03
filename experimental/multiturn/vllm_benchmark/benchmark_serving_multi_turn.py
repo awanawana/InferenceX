@@ -553,7 +553,7 @@ async def client_main(
     task_queue: mp.Queue,
     result_queue: mp.Queue,
     conv_queue: mp.Queue,
-    global_request_count: mp.Value | None = None,  # type: ignore
+    global_request_count=None,  # mp.Value for shared counter
     max_global_requests: int | None = None,
 ) -> None:
     logger.info(
@@ -783,7 +783,7 @@ def worker_function(
     task_queue: mp.Queue,
     result_queue: mp.Queue,
     conv_queue: mp.Queue,
-    global_request_count: mp.Value | None = None,  # type: ignore
+    global_request_count=None,  # mp.Value for shared counter
     max_global_requests: int | None = None,
 ) -> None:
     asyncio.run(
@@ -921,7 +921,7 @@ async def main_mp(
     client_metrics: list[RequestStats] = []
 
     # Global request counter for -n limit (shared across all clients)
-    global_request_count: mp.Value | None = None
+    global_request_count = None
     if bench_args.max_num_requests is not None:
         global_request_count = mp.Value('i', 0)
         logger.info(
