@@ -905,6 +905,7 @@ async def main_mp(
     tokenizer: AutoTokenizer,
     input_conv: ConversationsMap,
     total_requests: int | None = None,
+    metrics_collector: MetricsCollector | None = None,
 ) -> tuple[ConversationsMap, list[RequestStats]]:
     # An event that will trigger graceful termination of all the clients
     stop_event = mp.Event()
@@ -1002,6 +1003,10 @@ async def main_mp(
                     f"{Color.YELLOW}Sending termination signal to clients{Color.RESET}"
                 )
                 stop_event.set()
+                # Stop metrics collection immediately to avoid capturing wind-down period
+                if metrics_collector is not None:
+                    await metrics_collector.stop()
+                    logger.info(f"{Color.BLUE}Stopped metrics collection (early stop){Color.RESET}")
         else:
             output_conv[conv_id] = messages
 
@@ -1695,12 +1700,13 @@ async def main() -> None:
     benchmark_start_ns = time.perf_counter_ns()
     client_convs, client_metrics = await main_mp(
         client_args, req_args, bench_args, tokenizer, conversations,
-        total_requests=total_requests
+        total_requests=total_requests,
+        metrics_collector=metrics_collector,
     )
     benchmark_runtime_sec = nanosec_to_sec(time.perf_counter_ns() - benchmark_start_ns)
 
-    # Stop metrics collection and generate plots
-    if metrics_collector is not None:
+    # Stop metrics collection and generate plots (if not already stopped by early_stop)
+    if metrics_collector is not None and metrics_collector._running:
         await metrics_collector.stop()
         logger.info(f"{Color.BLUE}Stopped metrics collection{Color.RESET}")
         metrics_collector.generate_plots(
