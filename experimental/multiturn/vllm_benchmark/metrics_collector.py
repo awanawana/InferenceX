@@ -79,12 +79,12 @@ class MetricsCollector:
             r'vllm:prefix_cache_queries_total\{[^}]*\}\s+([\d.e+-]+)'
         ))
 
-        # Prefix cache - CPU/offloaded
+        # Prefix cache - external/offloaded (KV connector cross-instance cache)
         snapshot.cpu_prefix_cache_hits = int(get_value(
-            r'vllm:cpu_prefix_cache_hits_total\{[^}]*\}\s+([\d.e+-]+)'
+            r'vllm:external_prefix_cache_hits_total\{[^}]*\}\s+([\d.e+-]+)'
         ))
         snapshot.cpu_prefix_cache_queries = int(get_value(
-            r'vllm:cpu_prefix_cache_queries_total\{[^}]*\}\s+([\d.e+-]+)'
+            r'vllm:external_prefix_cache_queries_total\{[^}]*\}\s+([\d.e+-]+)'
         ))
 
         # Token counters
@@ -143,8 +143,17 @@ class MetricsCollector:
             except asyncio.CancelledError:
                 pass
 
-    def generate_plots(self, output_prefix: str = "metrics") -> None:
-        """Generate visualization plots from collected metrics."""
+    def generate_plots(
+        self,
+        output_prefix: str = "metrics",
+        client_metrics: list | None = None,
+    ) -> None:
+        """Generate visualization plots from collected metrics.
+
+        Args:
+            output_prefix: Prefix for output file names
+            client_metrics: Optional list of RequestStats from benchmark clients
+        """
         if len(self.snapshots) < 2:
             print("Not enough data points for plots")
             return
@@ -154,17 +163,18 @@ class MetricsCollector:
         times = [(s.timestamp - start_time) for s in self.snapshots]
 
         # Create figure with subplots
-        fig, axes = plt.subplots(3, 2, figsize=(14, 12))
+        num_rows = 5 if client_metrics else 3
+        fig, axes = plt.subplots(num_rows, 2, figsize=(14, 4 * num_rows))
         fig.suptitle("vLLM Server Metrics During Benchmark", fontsize=14)
 
         # 1. KV Cache Usage vs Time
         ax = axes[0, 0]
         kv_usage = [s.kv_cache_usage * 100 for s in self.snapshots]
         ax.plot(times, kv_usage, 'b-', label='GPU', linewidth=1.5)
-        # Add CPU cache if available
+        # Add external cache if available
         cpu_kv_usage = [s.cpu_kv_cache_usage * 100 for s in self.snapshots]
         if any(v > 0 for v in cpu_kv_usage):
-            ax.plot(times, cpu_kv_usage, 'r--', label='CPU (offload)', linewidth=1.5)
+            ax.plot(times, cpu_kv_usage, 'r--', label='External', linewidth=1.5)
             ax.legend()
         ax.set_xlabel("Time (s)")
         ax.set_ylabel("KV Cache Usage (%)")
@@ -207,7 +217,7 @@ class MetricsCollector:
                     cpu_hit_rates.append(cpu_hit_rates[-1] if cpu_hit_rates else 0)
         ax.plot(times[1:], hit_rates, 'purple', label='GPU', linewidth=1.5)
         if has_cpu_cache and cpu_hit_rates:
-            ax.plot(times[1:], cpu_hit_rates, 'orange', label='CPU (offload)', linewidth=1.5)
+            ax.plot(times[1:], cpu_hit_rates, 'orange', label='External', linewidth=1.5)
             ax.legend()
         ax.set_xlabel("Time (s)")
         ax.set_ylabel("Cache Hit Rate (%)")
@@ -257,6 +267,83 @@ class MetricsCollector:
         ax.set_title("Throughput vs KV Cache Utilization")
         ax.grid(True, alpha=0.3)
 
+        # 7 & 8. Client metrics plots (TTFT and Latency vs Time)
+        if client_metrics and len(client_metrics) > 0:
+            # Sort by start time
+            sorted_metrics = sorted(client_metrics, key=lambda x: x.start_time_ms)
+            # Convert to relative time (seconds from first request)
+            first_start = sorted_metrics[0].start_time_ms
+            request_times = [(m.start_time_ms - first_start) / 1000.0 for m in sorted_metrics]
+            ttfts = [m.ttft_ms for m in sorted_metrics]
+            latencies = [m.latency_ms for m in sorted_metrics]
+
+            # 7. TTFT vs Time
+            ax = axes[3, 0]
+            ax.scatter(request_times, ttfts, alpha=0.3, s=5, c='blue')
+            # Add rolling average
+            window = min(50, len(ttfts) // 10) if len(ttfts) > 10 else 1
+            if window > 1:
+                rolling_ttft = [
+                    sum(ttfts[max(0, i - window):i + 1]) / len(ttfts[max(0, i - window):i + 1])
+                    for i in range(len(ttfts))
+                ]
+                ax.plot(request_times, rolling_ttft, 'r-', linewidth=1.5, label=f'Rolling avg (n={window})')
+                ax.legend()
+            ax.set_xlabel("Time (s)")
+            ax.set_ylabel("TTFT (ms)")
+            ax.set_title("Time to First Token vs Time")
+            ax.grid(True, alpha=0.3)
+
+            # 8. Latency vs Time
+            ax = axes[3, 1]
+            ax.scatter(request_times, latencies, alpha=0.3, s=5, c='green')
+            # Add rolling average
+            if window > 1:
+                rolling_latency = [
+                    sum(latencies[max(0, i - window):i + 1]) / len(latencies[max(0, i - window):i + 1])
+                    for i in range(len(latencies))
+                ]
+                ax.plot(request_times, rolling_latency, 'r-', linewidth=1.5, label=f'Rolling avg (n={window})')
+                ax.legend()
+            ax.set_xlabel("Time (s)")
+            ax.set_ylabel("Latency (ms)")
+            ax.set_title("Request Latency vs Time")
+            ax.grid(True, alpha=0.3)
+
+            # 9. Interactivity (1/TPOT = tokens/sec) vs Time
+            ax = axes[4, 0]
+            # Filter out zero TPOT values to avoid division by zero
+            tpots = [m.tpot_ms for m in sorted_metrics]
+            interactivity = [1000.0 / t if t > 0 else 0 for t in tpots]  # Convert to tokens/sec
+            ax.scatter(request_times, interactivity, alpha=0.3, s=5, c='purple')
+            # Add rolling average
+            if window > 1:
+                rolling_inter = [
+                    sum(interactivity[max(0, i - window):i + 1]) / len(interactivity[max(0, i - window):i + 1])
+                    for i in range(len(interactivity))
+                ]
+                ax.plot(request_times, rolling_inter, 'r-', linewidth=1.5, label=f'Rolling avg (n={window})')
+                ax.legend()
+            ax.set_xlabel("Time (s)")
+            ax.set_ylabel("Interactivity (tokens/sec)")
+            ax.set_title("Decode Speed (1/TPOT) vs Time")
+            ax.grid(True, alpha=0.3)
+
+            # 10. TPOT vs Time (raw)
+            ax = axes[4, 1]
+            ax.scatter(request_times, tpots, alpha=0.3, s=5, c='orange')
+            if window > 1:
+                rolling_tpot = [
+                    sum(tpots[max(0, i - window):i + 1]) / len(tpots[max(0, i - window):i + 1])
+                    for i in range(len(tpots))
+                ]
+                ax.plot(request_times, rolling_tpot, 'r-', linewidth=1.5, label=f'Rolling avg (n={window})')
+                ax.legend()
+            ax.set_xlabel("Time (s)")
+            ax.set_ylabel("TPOT (ms)")
+            ax.set_title("Time Per Output Token vs Time")
+            ax.grid(True, alpha=0.3)
+
         plt.tight_layout()
         plt.savefig(f"{output_prefix}_plots.png", dpi=150)
         print(f"Saved plots to {output_prefix}_plots.png")
@@ -297,16 +384,13 @@ class MetricsCollector:
             print(f"  - Cache hits: {delta_hits:,} tokens")
             print(f"  - Cache queries: {delta_queries:,} tokens")
 
-        # CPU/offloaded cache stats if available
+        # External/offloaded cache stats if available
         if final.cpu_prefix_cache_queries > initial.cpu_prefix_cache_queries:
             cpu_delta_hits = final.cpu_prefix_cache_hits - initial.cpu_prefix_cache_hits
             cpu_delta_queries = final.cpu_prefix_cache_queries - initial.cpu_prefix_cache_queries
             cpu_hit_rate = 100.0 * cpu_delta_hits / cpu_delta_queries
-            print(f"Overall CPU (offload) cache hit rate: {cpu_hit_rate:.1f}%")
+            print(f"Overall external cache hit rate: {cpu_hit_rate:.1f}%")
             print(f"  - Cache hits: {cpu_delta_hits:,} tokens")
             print(f"  - Cache queries: {cpu_delta_queries:,} tokens")
-            # Peak CPU cache usage
-            peak_cpu_usage = max(s.cpu_kv_cache_usage for s in self.snapshots) * 100
-            print(f"Peak CPU KV cache usage: {peak_cpu_usage:.1f}%")
 
         print("="*60 + "\n")

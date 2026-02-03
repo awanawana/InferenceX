@@ -1672,7 +1672,10 @@ async def main() -> None:
     if metrics_collector is not None:
         await metrics_collector.stop()
         logger.info(f"{Color.BLUE}Stopped metrics collection{Color.RESET}")
-        metrics_collector.generate_plots(output_prefix=args.metrics_output)
+        metrics_collector.generate_plots(
+            output_prefix=args.metrics_output,
+            client_metrics=client_metrics,
+        )
 
     # Calculate requests per second
     requests_per_sec = len(client_metrics) / benchmark_runtime_sec
