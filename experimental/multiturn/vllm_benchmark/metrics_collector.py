@@ -16,10 +16,13 @@ import matplotlib.pyplot as plt
 class MetricsSnapshot:
     timestamp: float
     kv_cache_usage: float = 0.0
+    cpu_kv_cache_usage: float = 0.0
     num_requests_running: int = 0
     num_requests_waiting: int = 0
     prefix_cache_hits: int = 0
     prefix_cache_queries: int = 0
+    cpu_prefix_cache_hits: int = 0
+    cpu_prefix_cache_queries: int = 0
     prompt_tokens: int = 0
     generation_tokens: int = 0
     num_preemptions: int = 0
@@ -47,7 +50,17 @@ class MetricsCollector:
 
         # KV cache usage (0-1 scale)
         snapshot.kv_cache_usage = get_value(
-            r'vllm:kv_cache_usage_perc\{[^}]*\}\s+([\d.e+-]+)'
+            r'vllm:gpu_cache_usage_perc\{[^}]*\}\s+([\d.e+-]+)'
+        )
+        # Fallback to old metric name if new one not found
+        if snapshot.kv_cache_usage == 0.0:
+            snapshot.kv_cache_usage = get_value(
+                r'vllm:kv_cache_usage_perc\{[^}]*\}\s+([\d.e+-]+)'
+            )
+
+        # CPU/offloaded KV cache usage
+        snapshot.cpu_kv_cache_usage = get_value(
+            r'vllm:cpu_cache_usage_perc\{[^}]*\}\s+([\d.e+-]+)'
         )
 
         # Running/waiting requests
@@ -58,12 +71,20 @@ class MetricsCollector:
             r'vllm:num_requests_waiting\{[^}]*\}\s+([\d.e+-]+)'
         ))
 
-        # Prefix cache (cumulative counters)
+        # Prefix cache (cumulative counters) - GPU
         snapshot.prefix_cache_hits = int(get_value(
             r'vllm:prefix_cache_hits_total\{[^}]*\}\s+([\d.e+-]+)'
         ))
         snapshot.prefix_cache_queries = int(get_value(
             r'vllm:prefix_cache_queries_total\{[^}]*\}\s+([\d.e+-]+)'
+        ))
+
+        # Prefix cache - CPU/offloaded
+        snapshot.cpu_prefix_cache_hits = int(get_value(
+            r'vllm:cpu_prefix_cache_hits_total\{[^}]*\}\s+([\d.e+-]+)'
+        ))
+        snapshot.cpu_prefix_cache_queries = int(get_value(
+            r'vllm:cpu_prefix_cache_queries_total\{[^}]*\}\s+([\d.e+-]+)'
         ))
 
         # Token counters
@@ -139,7 +160,12 @@ class MetricsCollector:
         # 1. KV Cache Usage vs Time
         ax = axes[0, 0]
         kv_usage = [s.kv_cache_usage * 100 for s in self.snapshots]
-        ax.plot(times, kv_usage, 'b-', linewidth=1.5)
+        ax.plot(times, kv_usage, 'b-', label='GPU', linewidth=1.5)
+        # Add CPU cache if available
+        cpu_kv_usage = [s.cpu_kv_cache_usage * 100 for s in self.snapshots]
+        if any(v > 0 for v in cpu_kv_usage):
+            ax.plot(times, cpu_kv_usage, 'r--', label='CPU (offload)', linewidth=1.5)
+            ax.legend()
         ax.set_xlabel("Time (s)")
         ax.set_ylabel("KV Cache Usage (%)")
         ax.set_title("KV Cache Utilization Over Time")
@@ -161,14 +187,28 @@ class MetricsCollector:
         # 3. Cache Hit Rate vs Time (computed from deltas)
         ax = axes[1, 0]
         hit_rates = []
+        cpu_hit_rates = []
+        has_cpu_cache = any(s.cpu_prefix_cache_queries > 0 for s in self.snapshots)
         for i in range(1, len(self.snapshots)):
+            # GPU cache hit rate
             delta_hits = self.snapshots[i].prefix_cache_hits - self.snapshots[i-1].prefix_cache_hits
             delta_queries = self.snapshots[i].prefix_cache_queries - self.snapshots[i-1].prefix_cache_queries
             if delta_queries > 0:
                 hit_rates.append(100.0 * delta_hits / delta_queries)
             else:
                 hit_rates.append(hit_rates[-1] if hit_rates else 0)
-        ax.plot(times[1:], hit_rates, 'purple', linewidth=1.5)
+            # CPU cache hit rate
+            if has_cpu_cache:
+                cpu_delta_hits = self.snapshots[i].cpu_prefix_cache_hits - self.snapshots[i-1].cpu_prefix_cache_hits
+                cpu_delta_queries = self.snapshots[i].cpu_prefix_cache_queries - self.snapshots[i-1].cpu_prefix_cache_queries
+                if cpu_delta_queries > 0:
+                    cpu_hit_rates.append(100.0 * cpu_delta_hits / cpu_delta_queries)
+                else:
+                    cpu_hit_rates.append(cpu_hit_rates[-1] if cpu_hit_rates else 0)
+        ax.plot(times[1:], hit_rates, 'purple', label='GPU', linewidth=1.5)
+        if has_cpu_cache and cpu_hit_rates:
+            ax.plot(times[1:], cpu_hit_rates, 'orange', label='CPU (offload)', linewidth=1.5)
+            ax.legend()
         ax.set_xlabel("Time (s)")
         ax.set_ylabel("Cache Hit Rate (%)")
         ax.set_title("Prefix Cache Hit Rate (Rolling)")
@@ -253,8 +293,20 @@ class MetricsCollector:
             delta_hits = final.prefix_cache_hits - initial.prefix_cache_hits
             delta_queries = final.prefix_cache_queries - initial.prefix_cache_queries
             hit_rate = 100.0 * delta_hits / delta_queries
-            print(f"Overall cache hit rate: {hit_rate:.1f}%")
+            print(f"Overall GPU cache hit rate: {hit_rate:.1f}%")
             print(f"  - Cache hits: {delta_hits:,} tokens")
             print(f"  - Cache queries: {delta_queries:,} tokens")
+
+        # CPU/offloaded cache stats if available
+        if final.cpu_prefix_cache_queries > initial.cpu_prefix_cache_queries:
+            cpu_delta_hits = final.cpu_prefix_cache_hits - initial.cpu_prefix_cache_hits
+            cpu_delta_queries = final.cpu_prefix_cache_queries - initial.cpu_prefix_cache_queries
+            cpu_hit_rate = 100.0 * cpu_delta_hits / cpu_delta_queries
+            print(f"Overall CPU (offload) cache hit rate: {cpu_hit_rate:.1f}%")
+            print(f"  - Cache hits: {cpu_delta_hits:,} tokens")
+            print(f"  - Cache queries: {cpu_delta_queries:,} tokens")
+            # Peak CPU cache usage
+            peak_cpu_usage = max(s.cpu_kv_cache_usage for s in self.snapshots) * 100
+            print(f"Peak CPU KV cache usage: {peak_cpu_usage:.1f}%")
 
         print("="*60 + "\n")
