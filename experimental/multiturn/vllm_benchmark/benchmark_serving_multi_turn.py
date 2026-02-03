@@ -42,7 +42,6 @@ class ConversationSampling(str, Enum):
 
 class ClientArgs(NamedTuple):
     seed: int
-    max_num_requests: int | None
     skip_first_turn: bool
     max_turns: int | None
     max_active_conversations: int
@@ -67,6 +66,7 @@ class BenchmarkArgs(NamedTuple):
     url: str
     num_clients: int
     early_stop: bool
+    max_num_requests: int | None = None
 
 
 class ServerResponse(NamedTuple):
@@ -553,9 +553,11 @@ async def client_main(
     task_queue: mp.Queue,
     result_queue: mp.Queue,
     conv_queue: mp.Queue,
+    global_request_count: mp.Value | None = None,  # type: ignore
+    max_global_requests: int | None = None,
 ) -> None:
     logger.info(
-        f"{Color.CYAN}Started client {client_id}: max_num_requests={args.max_num_requests}, max_active_conversations={args.max_active_conversations}{Color.RESET}"  # noqa: E501
+        f"{Color.CYAN}Started client {client_id}: max_num_requests={max_global_requests} (global), max_active_conversations={args.max_active_conversations}{Color.RESET}"  # noqa: E501
     )
 
     # Set unique seed per client (each client runs in its own process)
@@ -586,15 +588,15 @@ async def client_main(
         while task_queue_empty is False:
             result = None
 
-            if (
-                args.max_num_requests
-                and num_successes + num_failures == args.max_num_requests
-            ):
-                logger.info(
-                    f"{Color.YELLOW}Client {client_id} reached "
-                    f"request limit{Color.RESET}"
-                )
-                break
+            # Check global request limit
+            if max_global_requests is not None and global_request_count is not None:
+                with global_request_count.get_lock():
+                    if global_request_count.value >= max_global_requests:
+                        logger.info(
+                            f"{Color.YELLOW}Client {client_id}: global request "
+                            f"limit reached ({max_global_requests}){Color.RESET}"
+                        )
+                        break
 
             if stop_event.is_set():  # type: ignore
                 logger.info(
@@ -732,6 +734,10 @@ async def client_main(
 
             else:
                 num_successes += 1
+                # Increment global counter
+                if global_request_count is not None:
+                    with global_request_count.get_lock():
+                        global_request_count.value += 1
 
                 # Update the turns counter to include the LLM response
                 # The LLM response will be used as context for the next user turn
@@ -777,6 +783,8 @@ def worker_function(
     task_queue: mp.Queue,
     result_queue: mp.Queue,
     conv_queue: mp.Queue,
+    global_request_count: mp.Value | None = None,  # type: ignore
+    max_global_requests: int | None = None,
 ) -> None:
     asyncio.run(
         client_main(
@@ -788,6 +796,8 @@ def worker_function(
             task_queue,
             result_queue,
             conv_queue,
+            global_request_count,
+            max_global_requests,
         )
     )
 
@@ -802,14 +812,6 @@ def get_client_config(
         raise ValueError(
             "Number of conversations must be equal or larger than the number of clients"
         )
-
-    max_req_per_client: int | None = None
-    if args.max_num_requests is not None:
-        # Max number of requests per client
-        req_per_client = args.max_num_requests // args.num_clients
-        if req_per_client < 1:
-            raise ValueError("Number of requests should be at least one per client")
-        max_req_per_client = req_per_client
 
     max_active_conversations = args.max_active_conversations
     if max_active_conversations is None:
@@ -836,7 +838,6 @@ def get_client_config(
     # Common arguments for all clients
     client_args = ClientArgs(
         seed=args.seed,
-        max_num_requests=max_req_per_client,
         skip_first_turn=skip_first_turn,
         max_turns=args.max_turns,
         max_active_conversations=max_active_conv_per_client,
@@ -919,6 +920,14 @@ async def main_mp(
     output_conv: ConversationsMap = {}
     client_metrics: list[RequestStats] = []
 
+    # Global request counter for -n limit (shared across all clients)
+    global_request_count: mp.Value | None = None
+    if bench_args.max_num_requests is not None:
+        global_request_count = mp.Value('i', 0)
+        logger.info(
+            f"{Color.CYAN}Global request limit: {bench_args.max_num_requests}{Color.RESET}"
+        )
+
     # Start all clients
     start_time = time.perf_counter_ns()
     logger.info(f"{Color.GREEN}Starting {bench_args.num_clients} clients{Color.RESET}")
@@ -937,6 +946,8 @@ async def main_mp(
                 task_queue,
                 result_queue,
                 conv_queue,
+                global_request_count,
+                bench_args.max_num_requests,
             ),
         )
         clients.append(client)
@@ -1588,7 +1599,10 @@ async def main() -> None:
     client_args, req_args = get_client_config(args, conversations)
 
     bench_args = BenchmarkArgs(
-        url=args.url, num_clients=args.num_clients, early_stop=not args.no_early_stop
+        url=args.url,
+        num_clients=args.num_clients,
+        early_stop=not args.no_early_stop,
+        max_num_requests=args.max_num_requests,
     )
 
     warmup_runtime_sec: float | None = None
@@ -1617,7 +1631,8 @@ async def main() -> None:
 
         # Early stop should be disabled,
         # all clients should finish their work before exiting
-        warmup_bench_args = bench_args._replace(early_stop=False)
+        # Also disable max_num_requests for warmup
+        warmup_bench_args = bench_args._replace(early_stop=False, max_num_requests=None)
 
         logger.info("%sWarmup start%s", Color.PURPLE, Color.RESET)
         warmup_start_ns = time.perf_counter_ns()
