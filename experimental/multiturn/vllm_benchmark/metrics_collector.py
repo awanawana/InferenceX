@@ -393,7 +393,7 @@ class MetricsCollector:
         ax.set_title("Generation Throughput")
         ax.grid(True, alpha=0.3)
 
-        # 5. GPU Transfer TX over Time (line plot to show spikes)
+        # 5. GPU Transfer TX over Time (line plot to show spikes + cumulative)
         ax = axes[2, 0]
         gpu_times = None
         if self.gpu_transfer_collector and len(self.gpu_transfer_collector.snapshots) > 1:
@@ -402,21 +402,49 @@ class MetricsCollector:
             gpu_times = [(s.timestamp - gpu_start) for s in gpu_snaps]
             tx_pci = [s.tx_pci for s in gpu_snaps]  # Already in MB/s
 
-            ax.plot(gpu_times, tx_pci, 'b-', linewidth=1, alpha=0.8)
+            ax.plot(gpu_times, tx_pci, 'b-', linewidth=1, alpha=0.8, label='TX rate')
+            ax.set_ylabel("TX Bandwidth (MB/s)", color='blue')
+            ax.tick_params(axis='y', labelcolor='blue')
+
+            # Cumulative TX on secondary y-axis
+            cumulative_tx = []
+            total = 0.0
+            for i in range(len(gpu_snaps)):
+                if i > 0:
+                    dt = gpu_snaps[i].timestamp - gpu_snaps[i-1].timestamp
+                    total += tx_pci[i] * dt  # MB/s * s = MB
+                cumulative_tx.append(total / 1024)  # Convert to GB
+            ax2 = ax.twinx()
+            ax2.plot(gpu_times, cumulative_tx, 'r-', linewidth=1.5, alpha=0.7, label='Cumulative')
+            ax2.set_ylabel("Cumulative TX (GB)", color='red')
+            ax2.tick_params(axis='y', labelcolor='red')
         ax.set_xlabel("Time (s)")
-        ax.set_ylabel("TX Bandwidth (MB/s)")
         ax.set_title("GPU PCIe TX Over Time (GPU → Host)")
         ax.grid(True, alpha=0.3)
 
-        # 6. GPU Transfer RX over Time (line plot to show spikes)
+        # 6. GPU Transfer RX over Time (line plot to show spikes + cumulative)
         ax = axes[2, 1]
         if self.gpu_transfer_collector and len(self.gpu_transfer_collector.snapshots) > 1:
             gpu_snaps = self.gpu_transfer_collector.snapshots
             rx_pci = [s.rx_pci for s in gpu_snaps]  # Already in MB/s
 
-            ax.plot(gpu_times, rx_pci, 'b-', linewidth=1, alpha=0.8)
+            ax.plot(gpu_times, rx_pci, 'b-', linewidth=1, alpha=0.8, label='RX rate')
+            ax.set_ylabel("RX Bandwidth (MB/s)", color='blue')
+            ax.tick_params(axis='y', labelcolor='blue')
+
+            # Cumulative RX on secondary y-axis
+            cumulative_rx = []
+            total = 0.0
+            for i in range(len(gpu_snaps)):
+                if i > 0:
+                    dt = gpu_snaps[i].timestamp - gpu_snaps[i-1].timestamp
+                    total += rx_pci[i] * dt  # MB/s * s = MB
+                cumulative_rx.append(total / 1024)  # Convert to GB
+            ax2 = ax.twinx()
+            ax2.plot(gpu_times, cumulative_rx, 'r-', linewidth=1.5, alpha=0.7, label='Cumulative')
+            ax2.set_ylabel("Cumulative RX (GB)", color='red')
+            ax2.tick_params(axis='y', labelcolor='red')
         ax.set_xlabel("Time (s)")
-        ax.set_ylabel("RX Bandwidth (MB/s)")
         ax.set_title("GPU PCIe RX Over Time (Host → GPU)")
         ax.grid(True, alpha=0.3)
 
