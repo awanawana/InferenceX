@@ -207,7 +207,7 @@ class MetricsCollector:
                 hit_rates.append(100.0 * delta_hits / delta_queries)
             else:
                 hit_rates.append(hit_rates[-1] if hit_rates else 0)
-            # CPU cache hit rate
+            # External cache hit rate
             if has_cpu_cache:
                 cpu_delta_hits = self.snapshots[i].cpu_prefix_cache_hits - self.snapshots[i-1].cpu_prefix_cache_hits
                 cpu_delta_queries = self.snapshots[i].cpu_prefix_cache_queries - self.snapshots[i-1].cpu_prefix_cache_queries
@@ -215,13 +215,32 @@ class MetricsCollector:
                     cpu_hit_rates.append(100.0 * cpu_delta_hits / cpu_delta_queries)
                 else:
                     cpu_hit_rates.append(cpu_hit_rates[-1] if cpu_hit_rates else 0)
-        ax.plot(times[1:], hit_rates, 'purple', label='GPU', linewidth=1.5)
+
+        # Scatter plot for GPU cache hit rate
+        ax.scatter(times[1:], hit_rates, alpha=0.3, s=5, c='purple', label='HBM')
+        # Rolling average for GPU
+        window = min(50, len(hit_rates) // 10) if len(hit_rates) > 10 else 1
+        if window > 1:
+            rolling_gpu = [
+                sum(hit_rates[max(0, i - window):i + 1]) / len(hit_rates[max(0, i - window):i + 1])
+                for i in range(len(hit_rates))
+            ]
+            ax.plot(times[1:], rolling_gpu, 'purple', linewidth=1.5, label=f'HBM avg (n={window})')
+
+        # Scatter plot and rolling average for external cache
         if has_cpu_cache and cpu_hit_rates:
-            ax.plot(times[1:], cpu_hit_rates, 'orange', label='External', linewidth=1.5)
-            ax.legend()
+            ax.scatter(times[1:], cpu_hit_rates, alpha=0.3, s=5, c='orange', label='External')
+            if window > 1:
+                rolling_ext = [
+                    sum(cpu_hit_rates[max(0, i - window):i + 1]) / len(cpu_hit_rates[max(0, i - window):i + 1])
+                    for i in range(len(cpu_hit_rates))
+                ]
+                ax.plot(times[1:], rolling_ext, 'orange', linewidth=1.5, label=f'External avg (n={window})')
+
+        ax.legend()
         ax.set_xlabel("Time (s)")
         ax.set_ylabel("Cache Hit Rate (%)")
-        ax.set_title("Prefix Cache Hit Rate (Rolling)")
+        ax.set_title("Prefix Cache Hit Rate")
         ax.set_ylim(0, 105)
         ax.grid(True, alpha=0.3)
 
