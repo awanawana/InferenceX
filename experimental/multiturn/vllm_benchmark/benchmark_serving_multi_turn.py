@@ -1705,10 +1705,13 @@ async def main() -> None:
     )
     benchmark_runtime_sec = nanosec_to_sec(time.perf_counter_ns() - benchmark_start_ns)
 
-    # Stop metrics collection and generate plots (if not already stopped by early_stop)
+    # Stop metrics collection (if not already stopped by early_stop)
     if metrics_collector is not None and metrics_collector._running:
         await metrics_collector.stop()
         logger.info(f"{Color.BLUE}Stopped metrics collection{Color.RESET}")
+
+    # Always generate plots if we have a metrics collector
+    if metrics_collector is not None:
         metrics_collector.generate_plots(
             output_prefix=args.metrics_output,
             client_metrics=client_metrics,
