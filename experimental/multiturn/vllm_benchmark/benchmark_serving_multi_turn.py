@@ -1082,25 +1082,41 @@ async def main_mp(
     )
 
     # Queues should be closed, required to avoid hang at interpreter shutdown
+    # Drain all queues before closing to prevent join_thread() from hanging
     unfinished_tasks = 0
     while not task_queue.empty():
-        task_queue.get()
-        unfinished_tasks += 1
+        try:
+            task_queue.get_nowait()
+            unfinished_tasks += 1
+        except Exception:
+            break
 
     if unfinished_tasks > 0:
-        # Can happen if not all tasks (conversations) have finished.
-        # May happen if --max-num-requests was used,
-        # or if an error occurred in one of the clients.
         logger.debug(f"Discarding {unfinished_tasks} unfinished tasks")
 
+    # Drain any remaining items from result_queue
+    while not result_queue.empty():
+        try:
+            result_queue.get_nowait()
+        except Exception:
+            break
+
+    # Drain any remaining items from conv_queue
+    while not conv_queue.empty():
+        try:
+            conv_queue.get_nowait()
+        except Exception:
+            break
+
+    # Cancel the join thread to avoid blocking (don't wait for feeder)
+    task_queue.cancel_join_thread()
     task_queue.close()
-    task_queue.join_thread()
 
+    result_queue.cancel_join_thread()
     result_queue.close()
-    result_queue.join_thread()
 
+    conv_queue.cancel_join_thread()
     conv_queue.close()
-    conv_queue.join_thread()
 
     return output_conv, client_metrics
 
