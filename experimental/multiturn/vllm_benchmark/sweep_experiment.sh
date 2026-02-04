@@ -3,6 +3,10 @@ set -euo pipefail
 
 # Sweep experiment for multi-turn benchmark
 # Sweeps: TP (1,2,4,8) x BS (16,32,64,128,256,512) x CPU offload (on/off)
+#
+# Usage:
+#   ./sweep_experiment.sh                    # Start fresh
+#   ./sweep_experiment.sh sweep_results_XXX  # Resume from existing directory
 
 MODEL="nvidia/Llama-3.3-70B-Instruct-FP4"
 INPUT_FILE="sample_5k.json"
@@ -12,9 +16,15 @@ NUM_REQUESTS=5000
 REQUEST_TIMEOUT=3600
 MAX_RETRIES=3
 
-# Output directory for all results
-RESULTS_DIR="sweep_results_$(date +%Y%m%d_%H%M%S)"
-mkdir -p "$RESULTS_DIR"
+# Output directory - use provided arg or create new
+if [ $# -ge 1 ] && [ -d "$1" ]; then
+    RESULTS_DIR="$1"
+    echo "Resuming from existing directory: $RESULTS_DIR"
+else
+    RESULTS_DIR="sweep_results_$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$RESULTS_DIR"
+    echo "Created new results directory: $RESULTS_DIR"
+fi
 
 # Log file
 LOG_FILE="$RESULTS_DIR/sweep.log"
@@ -55,6 +65,18 @@ stop_server() {
     sleep 60
 }
 
+# Function to check if experiment already completed successfully
+is_completed() {
+    local exp_dir=$1
+    if [ -f "$exp_dir/status.txt" ]; then
+        local status=$(cat "$exp_dir/status.txt")
+        if [ "$status" = "SUCCESS" ]; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
 # Function to run a single experiment
 run_experiment() {
     local tp=$1
@@ -67,6 +89,16 @@ run_experiment() {
     # Experiment name
     local exp_name="tp${tp}_bs${bs}_offload${offload}"
     local exp_dir="$RESULTS_DIR/$exp_name"
+
+    # Check if already completed
+    if is_completed "$exp_dir"; then
+        echo ""
+        echo "========================================"
+        echo "SKIPPING $exp_name (already completed successfully)"
+        echo "========================================"
+        return 0
+    fi
+
     mkdir -p "$exp_dir"
 
     echo ""
@@ -120,7 +152,7 @@ EOF
         echo "ERROR: Server failed to start for $exp_name"
         stop_server
         echo "FAILED" > "$exp_dir/status.txt"
-        return 1
+        return 0  # Don't exit script, continue to next experiment
     fi
 
     # Run benchmark
