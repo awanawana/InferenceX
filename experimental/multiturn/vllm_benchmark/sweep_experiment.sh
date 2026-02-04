@@ -191,13 +191,16 @@ EOF
         fi
 
         # Run benchmark
-        echo "Running benchmark..."
+        # Calculate num_requests: higher multiplier for smaller batch sizes
+        local multiplier=$((10 + (512 - bs) / 50))
+        local num_requests=$((bs * multiplier))
+        echo "Running benchmark (bs=$bs, multiplier=$multiplier, num_requests=$num_requests)..."
         local benchmark_cmd="python3 benchmark_serving_multi_turn.py"
         benchmark_cmd+=" -i $INPUT_FILE"
         benchmark_cmd+=" -m $MODEL"
         benchmark_cmd+=" -u http://localhost:$PORT"
         benchmark_cmd+=" -p $bs"
-        benchmark_cmd+=" -n $NUM_REQUESTS"
+        benchmark_cmd+=" -n $num_requests"
         benchmark_cmd+=" --max-retries $MAX_RETRIES"
         benchmark_cmd+=" --request-timeout $REQUEST_TIMEOUT"
         benchmark_cmd+=" --metrics-output $exp_dir/metrics"
