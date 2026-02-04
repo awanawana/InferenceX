@@ -4,11 +4,13 @@ Polls /metrics endpoint and generates visualizations.
 """
 
 import asyncio
+import csv
 import re
 import subprocess
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import aiohttp
 import matplotlib.pyplot as plt
@@ -563,3 +565,177 @@ class MetricsCollector:
             print(f"  - Cache queries: {cpu_delta_queries:,} tokens")
 
         print("="*60 + "\n")
+
+    def export_csv(
+        self,
+        output_prefix: str = "metrics",
+        client_metrics: list | None = None,
+    ) -> None:
+        """Export all time series data to CSV files.
+
+        Args:
+            output_prefix: Prefix for output file names
+            client_metrics: Optional list of RequestStats from benchmark clients
+
+        Generates:
+            - {output_prefix}_server_metrics.csv: vLLM server metrics over time
+            - {output_prefix}_gpu_transfer.csv: GPU PCIe transfer stats
+            - {output_prefix}_client_metrics.csv: Per-request client metrics (if provided)
+        """
+        output_dir = Path(output_prefix).parent
+        if output_dir and not output_dir.exists():
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+        # 1. Export server metrics (from /metrics endpoint)
+        if self.snapshots:
+            server_csv = f"{output_prefix}_server_metrics.csv"
+            start_time = self.snapshots[0].timestamp
+
+            with open(server_csv, 'w', newline='') as f:
+                writer = csv.writer(f)
+                # Header
+                writer.writerow([
+                    'timestamp_sec',
+                    'relative_time_sec',
+                    'kv_cache_usage_pct',
+                    'cpu_kv_cache_usage_pct',
+                    'num_requests_running',
+                    'num_requests_waiting',
+                    'prefix_cache_hits',
+                    'prefix_cache_queries',
+                    'cpu_prefix_cache_hits',
+                    'cpu_prefix_cache_queries',
+                    'prompt_tokens_total',
+                    'generation_tokens_total',
+                    'num_preemptions_total',
+                    'request_success_total',
+                    # Computed per-interval metrics
+                    'interval_cache_hit_rate_pct',
+                    'interval_throughput_tok_per_sec',
+                ])
+
+                for i, s in enumerate(self.snapshots):
+                    relative_time = s.timestamp - start_time
+
+                    # Compute per-interval metrics
+                    cache_hit_rate = 0.0
+                    throughput = 0.0
+                    if i > 0:
+                        prev = self.snapshots[i - 1]
+                        delta_hits = s.prefix_cache_hits - prev.prefix_cache_hits
+                        delta_queries = s.prefix_cache_queries - prev.prefix_cache_queries
+                        if delta_queries > 0:
+                            cache_hit_rate = 100.0 * delta_hits / delta_queries
+
+                        delta_gen = s.generation_tokens - prev.generation_tokens
+                        delta_time = s.timestamp - prev.timestamp
+                        if delta_time > 0:
+                            throughput = delta_gen / delta_time
+
+                    writer.writerow([
+                        f"{s.timestamp:.3f}",
+                        f"{relative_time:.3f}",
+                        f"{s.kv_cache_usage * 100:.2f}",
+                        f"{s.cpu_kv_cache_usage * 100:.2f}",
+                        s.num_requests_running,
+                        s.num_requests_waiting,
+                        s.prefix_cache_hits,
+                        s.prefix_cache_queries,
+                        s.cpu_prefix_cache_hits,
+                        s.cpu_prefix_cache_queries,
+                        s.prompt_tokens,
+                        s.generation_tokens,
+                        s.num_preemptions,
+                        s.request_success,
+                        f"{cache_hit_rate:.2f}",
+                        f"{throughput:.2f}",
+                    ])
+
+            print(f"Exported server metrics to {server_csv}")
+
+        # 2. Export GPU transfer stats
+        if self.gpu_transfer_collector and self.gpu_transfer_collector.snapshots:
+            gpu_csv = f"{output_prefix}_gpu_transfer.csv"
+            gpu_snaps = self.gpu_transfer_collector.snapshots
+            gpu_start = gpu_snaps[0].timestamp
+
+            with open(gpu_csv, 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    'timestamp_sec',
+                    'relative_time_sec',
+                    'gpu_id',
+                    'tx_pci_mb_per_sec',
+                    'rx_pci_mb_per_sec',
+                    'cumulative_tx_gb',
+                    'cumulative_rx_gb',
+                ])
+
+                cumulative_tx = 0.0
+                cumulative_rx = 0.0
+                for i, s in enumerate(gpu_snaps):
+                    relative_time = s.timestamp - gpu_start
+                    if i > 0:
+                        dt = s.timestamp - gpu_snaps[i - 1].timestamp
+                        cumulative_tx += s.tx_pci * dt / 1024  # MB to GB
+                        cumulative_rx += s.rx_pci * dt / 1024
+
+                    writer.writerow([
+                        f"{s.timestamp:.3f}",
+                        f"{relative_time:.3f}",
+                        s.gpu_id,
+                        f"{s.tx_pci:.2f}",
+                        f"{s.rx_pci:.2f}",
+                        f"{cumulative_tx:.4f}",
+                        f"{cumulative_rx:.4f}",
+                    ])
+
+            print(f"Exported GPU transfer metrics to {gpu_csv}")
+
+        # 3. Export client metrics (per-request stats)
+        if client_metrics and len(client_metrics) > 0:
+            client_csv = f"{output_prefix}_client_metrics.csv"
+            sorted_metrics = sorted(client_metrics, key=lambda x: x.start_time_ms)
+            first_start = sorted_metrics[0].start_time_ms
+
+            with open(client_csv, 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    'start_time_ms',
+                    'relative_time_sec',
+                    'ttft_ms',
+                    'tpot_ms',
+                    'latency_ms',
+                    'input_num_turns',
+                    'input_num_tokens',
+                    'output_num_tokens',
+                    'output_num_chunks',
+                    'output_num_first_chunk_tokens',
+                    'approx_cached_percent',
+                    'conversation_id',
+                    'client_id',
+                    'interactivity_tok_per_sec',
+                ])
+
+                for m in sorted_metrics:
+                    relative_time = (m.start_time_ms - first_start) / 1000.0
+                    interactivity = 1000.0 / m.tpot_ms if m.tpot_ms > 0 else 0
+
+                    writer.writerow([
+                        f"{m.start_time_ms:.3f}",
+                        f"{relative_time:.3f}",
+                        f"{m.ttft_ms:.3f}",
+                        f"{m.tpot_ms:.3f}",
+                        f"{m.latency_ms:.3f}",
+                        m.input_num_turns,
+                        m.input_num_tokens,
+                        m.output_num_tokens,
+                        m.output_num_chunks,
+                        m.output_num_first_chunk_tokens,
+                        f"{m.approx_cached_percent:.2f}",
+                        m.conversation_id,
+                        m.client_id,
+                        f"{interactivity:.2f}",
+                    ])
+
+            print(f"Exported client metrics to {client_csv}")

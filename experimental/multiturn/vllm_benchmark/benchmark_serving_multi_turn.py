@@ -1531,6 +1531,12 @@ async def main() -> None:
         action="store_true",
         help="Disable metrics collection during benchmark",
     )
+    parser.add_argument(
+        "--metrics-csv",
+        default=False,
+        action="store_true",
+        help="Export time series metrics to CSV files (uses --metrics-output prefix)",
+    )
 
     args = parser.parse_args()
 
@@ -1716,6 +1722,12 @@ async def main() -> None:
             output_prefix=args.metrics_output,
             client_metrics=client_metrics,
         )
+        # Export CSV if requested
+        if args.metrics_csv:
+            metrics_collector.export_csv(
+                output_prefix=args.metrics_output,
+                client_metrics=client_metrics,
+            )
 
     # Calculate requests per second
     requests_per_sec = len(client_metrics) / benchmark_runtime_sec
