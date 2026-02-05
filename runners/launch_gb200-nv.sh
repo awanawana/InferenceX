@@ -48,7 +48,7 @@ srun -N 1 -A $SLURM_ACCOUNT -p $SLURM_PARTITION bash -c "enroot import -o $NGINX
 export ISL="$ISL"
 export OSL="$OSL"
 
-if [[ $FRAMEWORK == "dynamo-sglang" ]]; then
+if [[ $FRAMEWORK == "dynamo-sglang" && -z "$CONFIG_FILE" ]]; then
     export IMAGE=$SQUASH_FILE
     export SGL_SLURM_JOBS_PATH="dynamo/examples/backends/sglang/slurm_jobs"
     bash benchmarks/"${EXP_NAME%%_*}_${PRECISION}_gb200_${FRAMEWORK}.sh"
@@ -157,6 +157,15 @@ echo "Make setup complete"
 ls configs/
 
 echo "Submitting job with srtctl..."
+
+# Transform recipe to use container/model aliases (temporary until upstream is updated)
+if [[ -n "$CONFIG_FILE" ]]; then
+    ORIGINAL_CONFIG="${SRTCTL_ROOT}/${CONFIG_FILE}"
+    TRANSFORMED_CONFIG="/tmp/transformed_$(basename $CONFIG_FILE)"
+    python3 ${GITHUB_WORKSPACE}/benchmarks/transform_recipe.py "$ORIGINAL_CONFIG" "$TRANSFORMED_CONFIG"
+    CONFIG_FILE="$TRANSFORMED_CONFIG"
+fi
+
 if [[ "$FRAMEWORK" == "dynamo-sglang" ]]; then
     SRTCTL_OUTPUT=$(srtctl apply -f "$CONFIG_FILE" --tags "gb200,${MODEL_PREFIX},${PRECISION},${ISL}x${OSL},infmax-$(date +%Y%m%d)" --setup-script install-torchao.sh 2>&1)
 else
