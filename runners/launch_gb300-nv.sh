@@ -121,9 +121,32 @@ echo "Found logs directory: $LOGS_DIR"
 
 cat $LOGS_DIR/sweep_${JOB_ID}.log
 
-for file in $LOGS_DIR/*; do
+# List all log files for debugging
+echo "============================================================"
+echo "Listing all log files in $LOGS_DIR:"
+ls -la $LOGS_DIR/
+echo "============================================================"
+
+# Dump all worker .out logs with cat for full visibility
+echo "Dumping all worker logs..."
+for file in $LOGS_DIR/*.out; do
     if [ -f "$file" ]; then
-        tail -n 500 $file
+        echo "============================================================"
+        echo "FULL LOG: $file"
+        echo "============================================================"
+        cat "$file"
+        echo ""
+    fi
+done
+
+# Also dump any .log files
+for file in $LOGS_DIR/*.log; do
+    if [ -f "$file" ]; then
+        echo "============================================================"
+        echo "FULL LOG: $file"
+        echo "============================================================"
+        cat "$file"
+        echo ""
     fi
 done
 
