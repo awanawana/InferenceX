@@ -159,11 +159,9 @@ ls configs/
 echo "Submitting job with srtctl..."
 
 # Transform recipe to use container/model aliases (temporary until upstream is updated)
+# CONFIG_FILE remains as relative path - srtctl resolves it from current directory (srt-slurm)
 if [[ -n "$CONFIG_FILE" ]]; then
-    ORIGINAL_CONFIG="${SRTCTL_ROOT}/${CONFIG_FILE}"
-    TRANSFORMED_CONFIG="/tmp/transformed_$(basename $CONFIG_FILE)"
-    python3 ${GITHUB_WORKSPACE}/benchmarks/transform_recipe.py "$ORIGINAL_CONFIG" "$TRANSFORMED_CONFIG"
-    CONFIG_FILE="$TRANSFORMED_CONFIG"
+    python3 ${GITHUB_WORKSPACE}/benchmarks/transform_recipe.py "${SRTCTL_ROOT}/${CONFIG_FILE}" "${SRTCTL_ROOT}/${CONFIG_FILE}"
 fi
 
 if [[ "$FRAMEWORK" == "dynamo-sglang" ]]; then

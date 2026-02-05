@@ -85,10 +85,8 @@ make setup ARCH=aarch64
 echo "Submitting job with srtctl..."
 
 # Transform recipe to use container/model aliases (temporary until upstream is updated)
-ORIGINAL_CONFIG="${GITHUB_WORKSPACE}/srt-slurm/${CONFIG_FILE}"
-TRANSFORMED_CONFIG="/tmp/transformed_$(basename $CONFIG_FILE)"
-python3 ${GITHUB_WORKSPACE}/benchmarks/transform_recipe.py "$ORIGINAL_CONFIG" "$TRANSFORMED_CONFIG"
-CONFIG_FILE="$TRANSFORMED_CONFIG"
+# CONFIG_FILE remains as relative path - srtctl resolves it from current directory (srt-slurm)
+python3 ${GITHUB_WORKSPACE}/benchmarks/transform_recipe.py "${GITHUB_WORKSPACE}/srt-slurm/${CONFIG_FILE}" "${GITHUB_WORKSPACE}/srt-slurm/${CONFIG_FILE}"
 
 SRTCTL_OUTPUT=$(srtctl apply -f "$CONFIG_FILE" --tags "gb300,${MODEL_PREFIX},${PRECISION},${ISL}x${OSL},infmax-$(date +%Y%m%d)" 2>&1)
 echo "$SRTCTL_OUTPUT"
