@@ -2,7 +2,10 @@
 set -euo pipefail
 
 # Sweep experiment for multi-turn benchmark
-# Sweeps: TP (1,2,4,8) x BS (16,32,64,128,256,512) x CPU offload (on/off)
+# Sweeps: TP (1,2,4,8) x BS (16,32,64,128,256,512) x prefix cache mode (on/off/noprefix)
+#   - on: prefix caching ON + KV offload to CPU ON
+#   - off: prefix caching ON + KV offload to CPU OFF
+#   - noprefix: prefix caching OFF (no KV offload possible)
 #
 # Usage:
 #   ./sweep_experiment.sh                    # Start fresh
@@ -38,7 +41,8 @@ echo "========================================"
 # Arrays for sweep
 TP_VALUES=(1 2 4 8)
 BS_VALUES=(16 32 64 128 256 512)
-OFFLOAD_VALUES=(on off)
+# on=prefix caching + offload, off=prefix caching only, noprefix=no prefix caching
+OFFLOAD_VALUES=(on off noprefix)
 
 # Function to wait for server to be ready
 wait_for_server() {
@@ -146,9 +150,13 @@ run_experiment() {
         echo ""
         echo "========================================"
         echo "Running experiment: $exp_name (attempt $attempt/$max_retries)"
-        echo "  TP=$tp, BS=$bs, Offload=$offload"
+        echo "  TP=$tp, BS=$bs, Mode=$offload"
         if [ "$offload" = "on" ]; then
-            echo "  CPU offload size per GPU: ${offload_size}GB"
+            echo "  Prefix caching: ON, CPU offload: ON (${offload_size}GB per GPU)"
+        elif [ "$offload" = "off" ]; then
+            echo "  Prefix caching: ON, CPU offload: OFF"
+        else
+            echo "  Prefix caching: OFF, CPU offload: OFF"
         fi
         echo "  Started at $(date)"
         echo "========================================"
@@ -171,10 +179,15 @@ EOF
         vllm_cmd+=" --attention-config.use_trtllm_attention=0"
 
         if [ "$offload" = "on" ]; then
+            # Prefix caching ON + KV offload to CPU ON
             vllm_cmd+=" --kv_offloading_backend native"
             vllm_cmd+=" --kv_offloading_size $offload_size"
             vllm_cmd+=" --disable-hybrid-kv-cache-manager"
+        elif [ "$offload" = "noprefix" ]; then
+            # Disable prefix caching entirely
+            vllm_cmd+=" --no-enable-prefix-caching"
         fi
+        # offload=off: prefix caching ON, no offload (default behavior)
 
         # Save the command for reference
         echo "$vllm_cmd" > "$exp_dir/vllm_command.txt"
