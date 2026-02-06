@@ -48,31 +48,15 @@ source $SGL_WS_PATH/env.sh
 host_ip=$(ip route get 1.1.1.1 | awk '/src/ {print $7}')
 host_name=$(hostname)
 
-# Validate MORI_RDMA_TC and hostname consistency
+# MORI_RDMA_TC configuration (optional)
+# If set by runner, use it for RDMA traffic class configuration
+# If not set, RDMA operations will proceed without QoS/traffic class settings
 if [[ -n "${MORI_RDMA_TC}" ]]; then
-    echo "MORI_RDMA_TC is set to: $MORI_RDMA_TC"
-
-    if [[ "$MORI_RDMA_TC" -eq 104 ]]; then
-        if [[ "$host_name" != mia1* ]]; then
-            echo "ERROR: MORI_RDMA_TC=104 should be applied on Node with prefix 'mia' but Host '$host_name' does not comply "
-            exit 1
-        fi
-        echo "Host '$host_name' has been configured with MORI_RDMA_TC=104"
-    elif [[ "$MORI_RDMA_TC" -eq 96 ]]; then
-        if [[ "$host_name" == GPU* || "$host_name" == smci355-ccs-aus* ]]; then
-            echo "MORI_RDMA_TC compliance check pass.. "
-        else
-            echo "ERROR: MORI_RDMA_TC=96 should be applied on Node with prefix 'GPU' or 'smci355-ccs-aus' but Host '$host_name' does not comply "
-            exit 1
-        fi
-        echo "Host '$host_name' has been configured with MORI_RDMA_TC=96"
-    else
-        echo "ERROR: MORI_RDMA_TC=$MORI_RDMA_TC should be either 104 or 96. Please apply the recommended QoS/DSCP configs."
-        exit 1
-    fi
+    echo "[INFO] Using MORI_RDMA_TC=$MORI_RDMA_TC for RDMA traffic class configuration"
+    echo "[INFO] Host '$host_name' configured with MORI_RDMA_TC=$MORI_RDMA_TC"
 else
-    echo "ERROR: MORI_RDMA_TC is not set. "
-    exit 1
+    echo "[INFO] MORI_RDMA_TC not set. Skipping RDMA traffic class configuration."
+    echo "[INFO] This is normal for clusters without QoS requirements."
 fi
 
 # =============================================================================

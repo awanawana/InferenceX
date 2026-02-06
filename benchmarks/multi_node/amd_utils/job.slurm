@@ -48,8 +48,9 @@ if [[ -z "${DOCKER_IMAGE_NAME:-}" ]]; then
     exit 1
 fi
 
-# Set current directory to be REPO directory with all relevant scripts
-export DI_REPO_DIR=$(pwd)
+# DI_REPO_DIR points to benchmarks/ (parent of multi_node/) so Docker can access benchmark_lib.sh.
+# $(pwd) is amd_utils/ (the sbatch submit dir); go up 2 levels to reach benchmarks/.
+export DI_REPO_DIR=$(cd "$(pwd)/../.." && pwd)
 
 xP="${xP:-1}" #-> Number of Prefill Workers
 yD="${yD:-1}" #-> Number of Decode Workers
@@ -70,10 +71,10 @@ BENCH_RANDOM_RANGE_RATIO="${BENCH_RANDOM_RANGE_RATIO:-1}"
 BENCH_NUM_PROMPTS_MULTIPLIER="${BENCH_NUM_PROMPTS_MULTIPLIER:-10}"
 BENCH_MAX_CONCURRENCY="${BENCH_MAX_CONCURRENCY:-512}"
 
-GPUS_PER_NODE="${GPUS_PER_NODE:-8}"
+GPUS_PER_NODE="${GPUS_PER_NODE:?ERROR: GPUS_PER_NODE must be set (e.g., 8 for MI355X, 4 for MI325X)}"
 
 MODEL_NAME="${MODEL_NAME:-None}"
-MODEL_DIR="${MODEL_DIR:-"/nfsdata"}"
+MODEL_DIR="${MODEL_DIR:?ERROR: MODEL_DIR must be set (path to shared model storage, e.g., /mnt/models, /nfsdata)}"
 
 # ------------------------
 # Model path validation and selection across all nodes
@@ -164,17 +165,17 @@ export SLURM_NODELIST="$NEW_SLURM_NODELIST"
 
 # Keep other SLURM variables as they were or set defaults
 export SLURM_TASKS_PER_NODE="1(x$NUM_NODES)"
-export SLURM_SUBMIT_DIR="${SLURM_SUBMIT_DIR:-/home/bill}"
-export SLURM_CLUSTER_NAME="${SLURM_CLUSTER_NAME:-m2m}"
+export SLURM_SUBMIT_DIR="${SLURM_SUBMIT_DIR:-$HOME}"
+export SLURM_CLUSTER_NAME="${SLURM_CLUSTER_NAME}"  # Let SLURM set this automatically
 export SLURM_JOB_CPUS_PER_NODE="${SLURM_JOB_CPUS_PER_NODE}"
-export SLURM_JOB_PARTITION="${SLURM_JOB_PARTITION:-amd-rccl}"
+export SLURM_JOB_PARTITION="${SLURM_JOB_PARTITION}"  # Should be set by sbatch/runner
 export SLURM_JOBID="${SLURM_JOBID:-$SLURM_JOB_ID}"
-export SLURM_JOB_QOS="${SLURM_JOB_QOS:-normal}"
-export SLURM_JOB_ACCOUNT="${SLURM_JOB_ACCOUNT:-amd-rccl}"
+export SLURM_JOB_QOS="${SLURM_JOB_QOS}"  # Should be set by sbatch/runner if needed
+export SLURM_JOB_ACCOUNT="${SLURM_JOB_ACCOUNT}"  # Should be set by sbatch/runner
 export SLURM_NTASKS_PER_NODE=1
 export SLURM_SUBMIT_HOST="${SLURM_SUBMIT_HOST}"
 export SLURM_JOB_ID="${SLURM_JOB_ID}"
-export SLURM_CONF="${SLURM_CONF:-/etc/slurm/slurm.conf}"
+# SLURM_CONF is auto-set by SLURM, no need to override
 export SLURM_JOB_NAME="${SLURM_JOB_NAME:-1p1d_bench-serving}"
 
 echo ""
@@ -221,7 +222,8 @@ done
 
 echo "Selected node IPs: ${IPS[*]}" | sed 's/ /,/g'
 
-SGL_WS_PATH="/multi_node/amd_utils"
+DOCKER_MOUNT_PATH="/benchmarks"
+SGL_WS_PATH="${DOCKER_MOUNT_PATH}/multi_node/amd_utils"
 timestamp=$(date +"%Y-%m-%d_%H-%M-%S")
 
 NNODES=$NUM_NODES
@@ -291,9 +293,9 @@ echo "Refreshing NFS caches on all nodes..."
 srun --nodelist="$SELECTED_NODELIST_SRUN" bash -c '
     sync
     # Force re-stat of the mounted directory to refresh NFS handles
-    ls -la '"$DI_REPO_DIR"' > /dev/null 2>&1
-    stat '"$DI_REPO_DIR"'/server.sh > /dev/null 2>&1
-    cat '"$DI_REPO_DIR"'/server.sh > /dev/null 2>&1
+    ls -la '"$DI_REPO_DIR"'/multi_node/amd_utils > /dev/null 2>&1
+    stat '"$DI_REPO_DIR"'/multi_node/amd_utils/server.sh > /dev/null 2>&1
+    cat '"$DI_REPO_DIR"'/multi_node/amd_utils/server.sh > /dev/null 2>&1
     # Drop caches if we have permission (optional, requires root)
     echo 3 | sudo tee /proc/sys/vm/drop_caches > /dev/null 2>&1 || true
     echo "NFS cache refreshed on $(hostname)"
@@ -331,7 +333,7 @@ exec sudo docker run --rm \
     --shm-size 128G \
     -v /tmp:/run_logs \
     -v ${BENCHMARK_LOGS_DIR}:/benchmark_logs \
-    -v ${DI_REPO_DIR}:${SGL_WS_PATH} \
+    -v ${DI_REPO_DIR}:${DOCKER_MOUNT_PATH} \
     -e SLURM_JOB_ID=\$SLURM_JOB_ID \
     -e SLURM_JOB_NODELIST=\$SLURM_JOB_NODELIST \
     -e NNODES=\$NNODES \

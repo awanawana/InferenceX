@@ -1,4 +1,9 @@
 #!/bin/bash
+#
+# Cluster Configuration Template for Multi-Node Disaggregated Serving
+#
+# This script submits a multi-node SGLang disaggregated benchmark job to SLURM.
+# It must be configured for your specific cluster before use.
 
 usage() {
     cat << 'USAGE'
@@ -7,15 +12,21 @@ so that the deployment process can be further simplified.
 
 To use this script, fill in the following script and run it under your `slurm_jobs` directory:
 ======== begin script area ========
-export SLURM_ACCOUNT=
-export SLURM_PARTITION=
-export TIME_LIMIT=
+# REQUIRED: Cluster-specific configuration
+export SLURM_ACCOUNT=              # Your SLURM account name
+export SLURM_PARTITION=            # SLURM partition to submit to
+export TIME_LIMIT=                 # Job time limit (e.g., "08:00:00")
 
-# Add path to your DSR1-FP8 model directory here
-export MODEL_PATH=
+# REQUIRED: Model and container paths
+export MODEL_PATH=                 # Path to model directory (e.g., /mnt/models, /nfsdata)
+export CONTAINER_IMAGE=            # Path to container squash file
 
-# Add path to your container image here, either as a link or as a cached file
-export CONTAINER_IMAGE=
+# REQUIRED: Hardware configuration
+export GPUS_PER_NODE=              # GPUs per node (e.g., 8 for MI355X, 4 for MI325X)
+
+# OPTIONAL: RDMA/Network configuration (set in runners/launch_mi355x-amds.sh for AMD)
+# export IBDEVICES=                # RDMA device names (e.g., ionic_0,ionic_1,... or mlx5_0,mlx5_1,...)
+# export MORI_RDMA_TC=             # RDMA traffic class (e.g., 96, 104)
 
 bash submit.sh \
 $PREFILL_NODES $PREFILL_WORKERS $DECODE_NODES $DECODE_WORKERS \
@@ -43,8 +54,9 @@ check_env MODEL_NAME
 check_env CONTAINER_IMAGE
 check_env RUNNER_NAME
 
-# Expandability: override for GPUs with different counts (e.g., MI325X with 4 GPUs)
-GPUS_PER_NODE="${GPUS_PER_NODE:-8}"
+# GPUS_PER_NODE must be set explicitly (no default)
+# Different GPU models have different counts: MI355X=8, MI325X=4
+GPUS_PER_NODE="${GPUS_PER_NODE:?ERROR: GPUS_PER_NODE must be set (e.g., 8 for MI355X, 4 for MI325X)}"
 
 # COMMAND_LINE ARGS
 PREFILL_NODES=$1
