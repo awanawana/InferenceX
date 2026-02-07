@@ -43,7 +43,7 @@ GPUS_PER_NODE="${GPUS_PER_NODE:-8}"
 # =============================================================================
 # Dependencies and Environment Setup
 # =============================================================================
-source $SGL_WS_PATH/env.sh
+source $SGLANG_WS_PATH/env.sh
 
 host_ip=$(ip route get 1.1.1.1 | awk '/src/ {print $7}')
 host_name=$(hostname)
@@ -62,7 +62,7 @@ fi
 # =============================================================================
 # Model-Specific Configuration from YAML
 # =============================================================================
-MODELS_YAML="${SGL_WS_PATH}/models.yaml"
+MODELS_YAML="${SGLANG_WS_PATH}/models.yaml"
 
 if [[ ! -f "$MODELS_YAML" ]]; then
     echo "ERROR: models.yaml not found at $MODELS_YAML"
@@ -314,7 +314,7 @@ fi
 # =============================================================================
 
 echo "Waiting at the container creation barrier on $host_name"
-python3 $SGL_WS_PATH/sync.py barrier \
+python3 $SGLANG_WS_PATH/sync.py barrier \
     --local-ip ${host_ip} \
     --local-port 5000 \
     --enable-port \
@@ -374,7 +374,7 @@ if [ "$NODE_RANK" -eq 0 ]; then
     echo "Waiting for all prefill and decode servers to be up . . ."
 
 
-    BARRIER_CMD="python3 $SGL_WS_PATH/sync.py barrier \
+    BARRIER_CMD="python3 $SGLANG_WS_PATH/sync.py barrier \
         --node-ips ${IPADDRS} \
         --node-ports 8000 \
         --timeout 1800"
@@ -408,7 +408,7 @@ if [ "$NODE_RANK" -eq 0 ]; then
     echo "Ready for benchmarking on ${host_name}:${host_ip}"
 
     echo "Benchmarking on ${host_name}:${host_ip}"
-    cd $SGL_WS_PATH
+    cd $SGLANG_WS_PATH
 
     # Export IS_MTP based on whether MTP is enabled
     if [ "$DECODE_MTP_SIZE" -gt 0 ]; then
@@ -418,7 +418,7 @@ if [ "$NODE_RANK" -eq 0 ]; then
     fi
 
     # n_prefill n_decode prefill_gpus decode_gpus model_dir model_name log_path isl osl concurrency_list req_rate random_range_ratio num_prompts_multiplier
-    BENCH_CMD="bash $SGL_WS_PATH/bench.sh ${xP} ${yD} $((PREFILL_TP_SIZE*xP)) $((DECODE_TP_SIZE*yD)) \
+    BENCH_CMD="bash $SGLANG_WS_PATH/bench.sh ${xP} ${yD} $((PREFILL_TP_SIZE*xP)) $((DECODE_TP_SIZE*yD)) \
         $MODEL_DIR $MODEL_NAME /run_logs/slurm_job-${SLURM_JOB_ID} ${BENCH_INPUT_LEN} \
         ${BENCH_OUTPUT_LEN} "${BENCH_MAX_CONCURRENCY}" ${BENCH_REQUEST_RATE} \
         ${BENCH_RANDOM_RANGE_RATIO} ${BENCH_NUM_PROMPTS_MULTIPLIER}"
@@ -478,7 +478,7 @@ elif [ "$NODE_RANK" -gt 0 ] && [ "$NODE_RANK" -lt "$NODE_OFFSET" ]; then
     fi
 
     echo "Waiting for proxy server to be up..."
-    BARRIER_CMD="python3 $SGL_WS_PATH/sync.py barrier \
+    BARRIER_CMD="python3 $SGLANG_WS_PATH/sync.py barrier \
         --node-ips ${NODE0_ADDR} \
         --node-ports 30000 \
         --timeout 1800"
@@ -490,7 +490,7 @@ elif [ "$NODE_RANK" -gt 0 ] && [ "$NODE_RANK" -lt "$NODE_OFFSET" ]; then
     fi
 
     echo "Waiting until proxy server closes..."
-    WAIT_CMD="python3 $SGL_WS_PATH/sync.py wait \
+    WAIT_CMD="python3 $SGLANG_WS_PATH/sync.py wait \
         --remote-ip ${NODE0_ADDR} \
         --remote-port 30000"
 
@@ -541,7 +541,7 @@ else
 
 
     echo "Waiting for proxy server to be up..."
-    BARRIER_CMD="python3 $SGL_WS_PATH/sync.py barrier \
+    BARRIER_CMD="python3 $SGLANG_WS_PATH/sync.py barrier \
         --node-ips ${NODE0_ADDR} \
         --node-ports 30000 \
         --timeout 1800"
@@ -554,7 +554,7 @@ else
 
 
     echo "Waiting until proxy server closes..."
-    WAIT_CMD="python3 $SGL_WS_PATH/sync.py wait \
+    WAIT_CMD="python3 $SGLANG_WS_PATH/sync.py wait \
         --remote-ip ${NODE0_ADDR} \
         --remote-port 30000"
 

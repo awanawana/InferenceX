@@ -9,6 +9,7 @@
 #   MORI_RDMA_TC - RDMA traffic class (e.g., 96, 104). Set by runner if cluster uses QoS.
 
 set -x
+export PYTHONDONTWRITEBYTECODE=1
 
 # IBDEVICES configuration
 # Prefer IBDEVICES set by runner (runners/launch_mi355x-amds.sh)

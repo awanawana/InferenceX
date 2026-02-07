@@ -87,7 +87,7 @@ def cmd_barrier(args):
             print(f"Waiting for nodes.{NODE_PORTS},{NODE_IPS} . . ({remaining:.0f}s remaining)", flush=True)
         else:
             print(f"Waiting for nodes.{NODE_PORTS},{NODE_IPS} . .", flush=True)
-        time.sleep(5)
+        time.sleep(30)
 
     if args.enable_port:
         time.sleep(30)

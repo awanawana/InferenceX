@@ -29,6 +29,8 @@ mkdir -p $profile_folder
 
 source "$(dirname "$0")/../../benchmark_lib.sh"
 
+# Repo root inside the container (3 levels up from this script's directory)
+REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 
 for max_concurrency in ${chosen_concurrencies[@]}; do
 
@@ -44,6 +46,7 @@ for max_concurrency in ${chosen_concurrencies[@]}; do
     echo "export_file: $export_file"
 
     run_benchmark_serving \
+        --bench-serving-dir "$REPO_ROOT" \
         --model  ${MODEL_PATH} \
         --port ${head_port} \
         --backend openai \

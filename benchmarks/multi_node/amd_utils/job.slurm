@@ -48,9 +48,9 @@ if [[ -z "${DOCKER_IMAGE_NAME:-}" ]]; then
     exit 1
 fi
 
-# DI_REPO_DIR points to benchmarks/ (parent of multi_node/) so Docker can access benchmark_lib.sh.
-# $(pwd) is amd_utils/ (the sbatch submit dir); go up 2 levels to reach benchmarks/.
-export DI_REPO_DIR=$(cd "$(pwd)/../.." && pwd)
+# DI_REPO_DIR points to the repo root so Docker can access both benchmarks/ and utils/.
+# $(pwd) is amd_utils/ (the sbatch submit dir); go up 3 levels to reach the repo root.
+export DI_REPO_DIR=$(cd "$(pwd)/../../.." && pwd)
 
 xP="${xP:-1}" #-> Number of Prefill Workers
 yD="${yD:-1}" #-> Number of Decode Workers
@@ -237,8 +237,8 @@ done
 
 echo "Selected node IPs: ${IPS[*]}" | sed 's/ /,/g'
 
-DOCKER_MOUNT_PATH="/benchmarks"
-SGL_WS_PATH="${DOCKER_MOUNT_PATH}/multi_node/amd_utils"
+DOCKER_MOUNT_PATH="/workspace"
+SGLANG_WS_PATH="${DOCKER_MOUNT_PATH}/benchmarks/multi_node/amd_utils"
 timestamp=$(date +"%Y-%m-%d_%H-%M-%S")
 
 NNODES=$NUM_NODES
@@ -257,7 +257,7 @@ fi
 
 
 export DI_REPO_DIR=$DI_REPO_DIR
-export SGL_WS_PATH=$SGL_WS_PATH
+export SGLANG_WS_PATH=$SGLANG_WS_PATH
 export NNODES=$NNODES
 export NODE0_ADDR=$NODE0_ADDR
 export MODEL_PATH=$MODEL_PATH
@@ -285,7 +285,7 @@ export BENCHMARK_LOGS_DIR="${BENCHMARK_LOGS_DIR:-$(pwd)/benchmark_logs}"
 
 SANITIZED_USER=$(echo "$USER_NAME" | tr -c 'a-zA-Z0-9_.-' '_')
 export DOCKER_CONT_NAME="container_sbatch_${SANITIZED_USER}_${MODEL_NAME}_${SLURM_JOB_ID}"
-export RUN_FILE_FULL="$SGL_WS_PATH/${RUN_FILE}"
+export RUN_FILE_FULL="$SGLANG_WS_PATH/${RUN_FILE}"
 
 
 # Use only the selected nodes for srun execution
@@ -308,9 +308,9 @@ echo "Refreshing NFS caches on all nodes..."
 srun --nodelist="$SELECTED_NODELIST_SRUN" bash -c '
     sync
     # Force re-stat of the mounted directory to refresh NFS handles
-    ls -la '"$DI_REPO_DIR"'/multi_node/amd_utils > /dev/null 2>&1
-    stat '"$DI_REPO_DIR"'/multi_node/amd_utils/server.sh > /dev/null 2>&1
-    cat '"$DI_REPO_DIR"'/multi_node/amd_utils/server.sh > /dev/null 2>&1
+    ls -la '"$DI_REPO_DIR"'/benchmarks/multi_node/amd_utils > /dev/null 2>&1
+    stat '"$DI_REPO_DIR"'/benchmarks/multi_node/amd_utils/server.sh > /dev/null 2>&1
+    cat '"$DI_REPO_DIR"'/benchmarks/multi_node/amd_utils/server.sh > /dev/null 2>&1
     # Drop caches if we have permission (optional, requires root)
     echo 3 | sudo tee /proc/sys/vm/drop_caches > /dev/null 2>&1 || true
     echo "NFS cache refreshed on $(hostname)"
@@ -355,7 +355,7 @@ exec sudo docker run --rm \
     -e NODE_RANK=\$SLURM_PROCID \
     -e NODE0_ADDR=\$NODE0_ADDR \
     -e MODEL_DIR=/models \
-    -e SGL_WS_PATH=${SGL_WS_PATH} \
+    -e SGLANG_WS_PATH=${SGLANG_WS_PATH} \
     -e GPUS_PER_NODE=\$GPUS_PER_NODE \
     -e xP=\$xP \
     -e yD=\$yD \
