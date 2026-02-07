@@ -445,3 +445,11 @@
   description:
     - "Add DeepSeek R1 FP8 H100 Dynamo TRT-LLM disaggregated multinode configurations"
   pr-link: https://github.com/InferenceMAX/InferenceMAX/pull/651
+
+- config-keys:
+    - dsr1-fp8-h200-dynamo-sglang
+  description:
+    - "Add MTP (EAGLE speculative decoding) configs alongside STP"
+    - "Update container to lmsysorg/sglang:v0.5.8.post1-cu130"
+    - "Remove aggregated configs, keep only disaggregated"
+  pr-link: https://github.com/InferenceMAX/InferenceMAX/pull/640
