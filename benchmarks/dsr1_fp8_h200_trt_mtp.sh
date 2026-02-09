@@ -108,3 +108,6 @@ run_benchmark_serving \
     --result-dir /workspace/ \
     --use-chat-template
 
+
+# Move profiler trace to stable path for relay upload.
+move_profile_trace_for_relay

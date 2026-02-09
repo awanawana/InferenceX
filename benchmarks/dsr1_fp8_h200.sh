@@ -204,31 +204,8 @@ BENCH_PID=$!
 
 wait "$BENCH_PID"
 
-ls -lt "$SGLANG_TORCH_PROFILER_DIR"
-
-if [[ "${PROFILE:-}" == "1" ]]; then
-  # Wait briefly for the file to appear (auto-stop writes it)
-  TRACE_FILE=""
-  for _ in {1..180}; do
-    TRACE_FILE=$(ls -t "$SGLANG_TORCH_PROFILER_DIR"/*.trace.json* 2>/dev/null | head -n1)
-    [[ -n "$TRACE_FILE" ]] && break
-    sleep 1
-  done
-
-  if [[ -n "$TRACE_FILE" ]]; then
-    DEST_TRACE="/workspace/profile_${RESULT_FILENAME}.trace.json.gz"
-    # If a merged profile exists, run MFU analyzer on it before copying
-    MERGED_TRACE=$(ls -t "$SGLANG_TORCH_PROFILER_DIR"/merged-*.trace.json* 2>/dev/null | head -n1)
-    if [[ -n "$MERGED_TRACE" ]]; then
-      echo "[PROFILE] Running MFU analyzer on merged trace: $MERGED_TRACE"
-      PYTHONNOUSERSITE=1 python3 utils/mfu_trace_analyzer.py "$MERGED_TRACE" "$MERGED_TRACE" --gpu H200 --tp $TP --decode-batch-size 2 || echo "[PROFILE] MFU analyzer failed; continuing without modification"
-    fi
-    echo "[PROFILE] Found trace: $TRACE_FILE -> $DEST_TRACE"
-    cp "$TRACE_FILE" "$DEST_TRACE"
-  else
-    echo "[PROFILE] No trace found under $SGLANG_TORCH_PROFILER_DIR" >&2
-  fi
-fi
+# Move profiler trace to stable path for relay upload.
+move_profile_trace_for_relay
 
 # After throughput, run evaluation only if RUN_EVAL is true
 if [ "${RUN_EVAL}" = "true" ]; then

@@ -77,3 +77,6 @@ sbatch --nodes=${total_nodes} \
     ${gen_nodes} ${kind} \
     ${MODEL_PATH} ${SERVED_MODEL_NAME} \
     ${IMAGE} ${ISL} ${OSL}
+
+# Move profiler trace to stable path for relay upload.
+move_profile_trace_for_relay

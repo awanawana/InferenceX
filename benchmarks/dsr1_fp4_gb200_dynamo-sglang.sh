@@ -52,3 +52,6 @@ bash ./submit_disagg.sh $PREFILL_NODES \
     $ISL $OSL "${CONC_LIST// /x}" inf \
     $GPU_TYPE \
     $SCRIPT_MODE
+
+# Move profiler trace to stable path for relay upload.
+move_profile_trace_for_relay

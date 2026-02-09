@@ -1,4 +1,4 @@
-name: Profile - SGLang (Single Node)
+name: Profile
 
 on:
   workflow_dispatch:
@@ -28,8 +28,7 @@ env:
   HF_HUB_CACHE: '/mnt/hf_hub_cache/'
   RANDOM_RANGE_RATIO: '0.8'
   PERFETTO_RELAY_URL: https://oseltamivir.github.io/profiler-storage
-  # Single source of truth for push-time concurrency filter
-  PUSH_CONC: '128'
+  PUSH_CONC: '64'
 
 jobs:
   get-jobs:
@@ -50,13 +49,13 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             CLI_ARGS="${{ inputs.generate-cli-command }}"
           else
-            CLI_ARGS="full-sweep --config-files .github/configs/amd-master.yaml --runner-config .github/configs/runners.yaml --single-node --framework sglang --runner-type mi300x --model-prefix dsr1 --precision fp8 --seq-lens 1k1k --max-conc ${PUSH_CONC}"
+            CLI_ARGS="full-sweep --config-files .github/configs/amd-master.yaml --runner-config .github/configs/runners.yaml --single-node --framework sglang vllm --runner-type h200 --model-prefix dsr1 --precision fp8 --seq-lens 1k1k --max-conc ${PUSH_CONC}"
           fi
           CONFIG_JSON=$(python3 ${GITHUB_WORKSPACE}/utils/matrix_logic/generate_sweep_configs.py $CLI_ARGS)
           echo "raw=$CONFIG_JSON" >> $GITHUB_OUTPUT
 
       - id: filter
-        name: Filter single-node SGLang jobs
+        name: Filter single-node SGLang/vLLM jobs
         shell: python
         run: |
           import json, os, sys
@@ -70,13 +69,15 @@ jobs:
             raise
 
           is_push = '${{ github.event_name }}' == 'push'
+          allowed_frameworks = {'sglang', 'vllm'}
           try:
             push_conc = int(os.getenv('PUSH_CONC', '64'))
           except Exception:
             push_conc = 64
-          filt = [d for d in data 
-                  if d.get('framework') == 'sglang' 
+          filt = [d for d in data
+                  if d.get('framework') in allowed_frameworks
                   and d.get('prefill') is None 
+                  and not d.get('disagg', False)
                   and (not is_push or int(d.get('conc', 0)) == push_conc)]
           
           out = json.dumps(filt)
@@ -89,9 +90,9 @@ jobs:
         if: ${{ steps.filter.outputs.count == '0' }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "No single-node sglang entries produced by your CLI. Please constrain your args or check runner filters." >&2
+            echo "No single-node sglang/vllm entries produced by your CLI. Please constrain your args or check runner filters." >&2
           else
-            echo "No matching 1k1k@${PUSH_CONC} sglang entries found from configs." >&2
+            echo "No matching 1k1k@${PUSH_CONC} sglang/vllm entries found from configs." >&2
           fi
           exit 1
 
@@ -148,12 +149,14 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.ref || github.ref }}
 
-      - name: Launch + Profile (single-node sglang)
+      - name: Launch + Profile (single-node sglang/vllm)
         id: run
         env:
           RUNNER_NAME: ${{ runner.name }}
           PROFILE: '1'
           SGLANG_TORCH_PROFILER_DIR: /workspace/
+          VLLM_TORCH_PROFILER_DIR: /workspace/
+          VLLM_RPC_TIMEOUT: '1800000'
         shell: bash
         run: |
           set -euo pipefail
@@ -172,19 +175,21 @@ jobs:
           trace_path="profile_${res_name}.trace.json.gz"
           if [ -f "$trace_path" ]; then
             echo "trace=$trace_path" >> "$GITHUB_OUTPUT"
-            # Try to locate corresponding TP-0 traces produced by SGLang profiler
-            merged_latest=$(ls -t profiles/merged-*.trace.json.gz 2>/dev/null | head -n1 || true)
-            if [ -n "${merged_latest}" ] && [ -f "${merged_latest}" ]; then
-              ts_name="${merged_latest##*/}"
-              ts_name="${ts_name#merged-}"
-              ts_name="${ts_name%.trace.json.gz}"
-              tp0_decode="profiles/${ts_name}-TP-0-DECODE.trace.json.gz"
-              tp0_extend="profiles/${ts_name}-TP-0-EXTEND.trace.json.gz"
-              if [ -f "${tp0_decode}" ]; then
-                echo "tp0_decode=${tp0_decode}" >> "$GITHUB_OUTPUT"
-              fi
-              if [ -f "${tp0_extend}" ]; then
-                echo "tp0_extend=${tp0_extend}" >> "$GITHUB_OUTPUT"
+            if [ "${FRAMEWORK}" = "sglang" ]; then
+              # Try to locate corresponding TP-0 traces produced by SGLang profiler
+              merged_latest=$(ls -t profiles/merged-*.trace.json.gz 2>/dev/null | head -n1 || true)
+              if [ -n "${merged_latest}" ] && [ -f "${merged_latest}" ]; then
+                ts_name="${merged_latest##*/}"
+                ts_name="${ts_name#merged-}"
+                ts_name="${ts_name%.trace.json.gz}"
+                tp0_decode="profiles/${ts_name}-TP-0-DECODE.trace.json.gz"
+                tp0_extend="profiles/${ts_name}-TP-0-EXTEND.trace.json.gz"
+                if [ -f "${tp0_decode}" ]; then
+                  echo "tp0_decode=${tp0_decode}" >> "$GITHUB_OUTPUT"
+                fi
+                if [ -f "${tp0_extend}" ]; then
+                  echo "tp0_extend=${tp0_extend}" >> "$GITHUB_OUTPUT"
+                fi
               fi
             fi
           else

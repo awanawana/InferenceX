@@ -72,3 +72,6 @@ if [[ $? -ne 0 ]]; then
 fi
 
 echo "$JOB_ID"
+
+# Move profiler trace to stable path for relay upload.
+move_profile_trace_for_relay
