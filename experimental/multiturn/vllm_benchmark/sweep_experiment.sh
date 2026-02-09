@@ -2,10 +2,9 @@
 set -euo pipefail
 
 # Sweep experiment for multi-turn benchmark
-# Sweeps: TP (1,2,4,8) x BS (16,32,64,128,256,512) x prefix cache mode (on/off/noprefix)
+# Sweeps: TP (1,2,4,8) x BS (8-2048) x CPU offload (on/off)
 #   - on: prefix caching ON + KV offload to CPU ON
 #   - off: prefix caching ON + KV offload to CPU OFF
-#   - noprefix: prefix caching OFF (no KV offload possible)
 #
 # Usage:
 #   ./sweep_experiment.sh                    # Start fresh
@@ -15,7 +14,6 @@ MODEL="nvidia/Llama-3.3-70B-Instruct-FP4"
 INPUT_FILE="sample_5k.json"
 PORT=8888
 TOTAL_CPU_DRAM_GB=300
-NUM_REQUESTS=3600
 REQUEST_TIMEOUT=3600
 MAX_RETRIES=3
 
@@ -40,9 +38,9 @@ echo "========================================"
 
 # Arrays for sweep
 TP_VALUES=(1 2 4 8)
-BS_VALUES=(16 32 64 128 256 512)
-# on=prefix caching + offload, off=prefix caching only, noprefix=no prefix caching
-OFFLOAD_VALUES=(on off noprefix)
+BS_VALUES=(8 16 32 64 128 256 512 1024 2048)
+# on=prefix caching + CPU offload, off=prefix caching only (no CPU offload)
+OFFLOAD_VALUES=(on off)
 
 # Function to wait for server to be ready
 wait_for_server() {
@@ -153,10 +151,8 @@ run_experiment() {
         echo "  TP=$tp, BS=$bs, Mode=$offload"
         if [ "$offload" = "on" ]; then
             echo "  Prefix caching: ON, CPU offload: ON (${offload_size}GB per GPU)"
-        elif [ "$offload" = "off" ]; then
-            echo "  Prefix caching: ON, CPU offload: OFF"
         else
-            echo "  Prefix caching: OFF, CPU offload: OFF"
+            echo "  Prefix caching: ON, CPU offload: OFF"
         fi
         echo "  Started at $(date)"
         echo "========================================"
@@ -183,11 +179,8 @@ EOF
             vllm_cmd+=" --kv_offloading_backend native"
             vllm_cmd+=" --kv_offloading_size $offload_size"
             vllm_cmd+=" --disable-hybrid-kv-cache-manager"
-        elif [ "$offload" = "noprefix" ]; then
-            # Disable prefix caching entirely
-            vllm_cmd+=" --no-enable-prefix-caching"
         fi
-        # offload=off: prefix caching ON, no offload (default behavior)
+        # offload=off: prefix caching ON, no CPU offload (default behavior)
 
         # Save the command for reference
         echo "$vllm_cmd" > "$exp_dir/vllm_command.txt"
@@ -216,17 +209,13 @@ EOF
             continue
         fi
 
-        # Run benchmark
-        # Calculate num_requests: higher multiplier for smaller batch sizes
-        local multiplier=$((10 + (512 - bs) / 50))
-        local num_requests=$((bs * multiplier))
-        echo "Running benchmark (bs=$bs, multiplier=$multiplier, num_requests=$num_requests)..."
+        # Run benchmark (all requests in input file)
+        echo "Running benchmark (bs=$bs, all requests)..."
         local benchmark_cmd="python3 benchmark_serving_multi_turn.py"
         benchmark_cmd+=" -i $INPUT_FILE"
         benchmark_cmd+=" -m $MODEL"
         benchmark_cmd+=" -u http://localhost:$PORT"
         benchmark_cmd+=" -p $bs"
-        benchmark_cmd+=" -n $num_requests"
         benchmark_cmd+=" --max-retries $MAX_RETRIES"
         benchmark_cmd+=" --request-timeout $REQUEST_TIMEOUT"
         benchmark_cmd+=" --metrics-output $exp_dir/metrics"
@@ -256,7 +245,7 @@ EOF
 }
 
 # Main sweep loop
-total_experiments=$((${#TP_VALUES[@]} * ${#BS_VALUES[@]} * ${#OFFLOAD_VALUES[@]}))
+total_experiments=$(( ${#TP_VALUES[@]} * ${#BS_VALUES[@]} * ${#OFFLOAD_VALUES[@]} ))
 current=0
 
 for tp in "${TP_VALUES[@]}"; do
