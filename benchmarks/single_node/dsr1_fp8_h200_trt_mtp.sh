@@ -71,6 +71,9 @@ fi
 
 if [[ "$DP_ATTENTION" == "true" ]]; then
     MAX_BATCH_SIZE=$((CONC/TP))
+    if [[ $MAX_BATCH_SIZE -lt 1 ]]; then
+        MAX_BATCH_SIZE=1
+    fi
 else
     MAX_BATCH_SIZE=$CONC
 fi
