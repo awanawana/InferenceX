@@ -544,3 +544,9 @@
     - "Add 1k1k configurations: low-latency (1P2D), mid-curve (4P8D), max-tpt (4P12D)"
     - "Add 8k1k configurations: low-latency (1P4D), mid-curve (6P12D), max-tpt (10P8D)"
   pr-link: https://github.com/InferenceMAX/InferenceMAX/pull/636
+
+- config-keys:
+    - dsr1-fp8-b200-dynamo-trt
+  description:
+    - "Update max_num_tokens and max_batch_size for min-latency decode workers"
+  pr-link: https://github.com/InferenceMAX/InferenceMAX/pull/616
