@@ -24,14 +24,22 @@ set -euo pipefail
 # logs are saved per-run.
 #
 # Usage:
-#   ./sweep_tep_dep.sh
+#   ./sweep_tep_dep.sh                              # fresh run
+#   ./sweep_tep_dep.sh ./results/tep_dep_sweep_...  # resume a previous run
 #   ISL=8192 OSL=1024 ./sweep_tep_dep.sh
 #   CONFIGS="8,1 4,2" CONCURRENCIES="4 16 64" ./sweep_tep_dep.sh
 # =============================================================================
 
+# Resume mode: pass an existing result dir as $1 to skip completed runs
+RESUME_DIR="${1:-}"
+
 MODEL="${MODEL:-deepseek-ai/DeepSeek-R1-0528}"
 PORT="${PORT:-8000}"
-RESULT_DIR="${RESULT_DIR:-./results/tep_dep_sweep_$(date +%Y%m%d_%H%M%S)}"
+if [[ -n "$RESUME_DIR" ]]; then
+    RESULT_DIR="$RESUME_DIR"
+else
+    RESULT_DIR="${RESULT_DIR:-./results/tep_dep_sweep_$(date +%Y%m%d_%H%M%S)}"
+fi
 ISL="${ISL:-1024}"
 OSL="${OSL:-1024}"
 NUM_PROMPTS_MULT="${NUM_PROMPTS_MULT:-10}"   # num_prompts = conc × this
@@ -57,8 +65,10 @@ EXTRA_VLLM_FLAGS="${EXTRA_VLLM_FLAGS:-}"
 
 mkdir -p "$RESULT_DIR"
 SUMMARY_CSV="${RESULT_DIR}/summary.csv"
-echo "tp,dp,ep,concurrency,isl,osl,model_load_gib,kv_cache_avail_gib,kv_cache_tokens,max_concurrency_x,cudagraph_gib,weight_load_s,model_load_s,torch_compile_s,engine_init_s,local_experts,global_experts,attention_backend,moe_backend,throughput_req_per_s,throughput_tok_per_s,mean_ttft_ms,median_ttft_ms,p99_ttft_ms,mean_tpot_ms,median_tpot_ms,p99_tpot_ms,mean_e2el_ms,median_e2el_ms,p99_e2el_ms" \
-    > "$SUMMARY_CSV"
+CSV_HEADER="tp,dp,ep,concurrency,isl,osl,model_load_gib,kv_cache_avail_gib,kv_cache_tokens,max_concurrency_x,cudagraph_gib,weight_load_s,model_load_s,torch_compile_s,engine_init_s,local_experts,global_experts,attention_backend,moe_backend,throughput_req_per_s,throughput_tok_per_s,mean_ttft_ms,median_ttft_ms,p99_ttft_ms,mean_tpot_ms,median_tpot_ms,p99_tpot_ms,mean_e2el_ms,median_e2el_ms,p99_e2el_ms"
+if [[ ! -f "$SUMMARY_CSV" ]]; then
+    echo "$CSV_HEADER" > "$SUMMARY_CSV"
+fi
 
 SERVER_PID=""
 
@@ -255,7 +265,11 @@ trap stop_server EXIT
 # ---------------------------------------------------------------------------
 # Main sweep
 # ---------------------------------------------------------------------------
-log "Starting TEP↔DEP sweep"
+if [[ -n "$RESUME_DIR" ]]; then
+    log "Resuming sweep from: $RESULT_DIR"
+else
+    log "Starting TEP↔DEP sweep"
+fi
 log "  Model:         $MODEL"
 log "  GPUs:          $NUM_GPUS"
 log "  ISL/OSL:       $ISL / $OSL"
@@ -271,6 +285,13 @@ for config in "${CONFIG_PAIRS[@]}"; do
     for CONC in "${CONCURRENCIES[@]}"; do
         NUM_PROMPTS=$(( CONC * NUM_PROMPTS_MULT ))
         TAG="tp${TP}_dp${DP}_ep${EP}_conc${CONC}_isl${ISL}_osl${OSL}"
+
+        # ── Skip if this run already completed ─────────────────────────
+        RESULT_JSON="${RESULT_DIR}/${TAG}.json"
+        if [[ -f "$RESULT_JSON" ]]; then
+            log "SKIP (already exists): $TAG"
+            continue
+        fi
 
         log "============================================================"
         log "Run: TP=$TP  DP=$DP  EP=$EP  conc=$CONC"
