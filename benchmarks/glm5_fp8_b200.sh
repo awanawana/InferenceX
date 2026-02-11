@@ -20,18 +20,29 @@ nvidia-smi
 
 hf download "$MODEL"
 
+export SGLANG_ENABLE_SPEC_V2=1
+
 SERVER_LOG=/workspace/server.log
 PORT=${PORT:-8888}
 
 if [[ $TP -eq 8 ]]; then
+  # Dynamic scheduler recv interval based on concurrency
+  if [[ $CONC -ge 16 ]]; then
+    SCHEDULER_RECV_INTERVAL=30
+  else
+    SCHEDULER_RECV_INTERVAL=10
+  fi
+
   MEM_FRAC_STATIC=0.85
-  MAX_RUNNING_REQUESTS=128
-  CUDA_GRAPH_MAX_BATCH_SIZE=128
+  MAX_RUNNING_REQUESTS=256
+  CUDA_GRAPH_MAX_BATCH_SIZE=256
+  CHUNKED_PREFILL_SIZE=16384
+  MAX_PREFILL_TOKENS=16384
 else
   echo "Unrecognized TP size $TP!"
   exit 1
 fi
-echo "CONC: $CONC, ISL: $ISL, OSL: $OSL"
+echo "SCHEDULER_RECV_INTERVAL: $SCHEDULER_RECV_INTERVAL, CONC: $CONC, ISL: $ISL, OSL: $OSL"
 
 ps aux
 
@@ -46,7 +57,14 @@ PYTHONNOUSERSITE=1 python3 -m sglang.launch_server \
   --max-running-requests $MAX_RUNNING_REQUESTS \
   --mem-fraction-static $MEM_FRAC_STATIC \
   --kv-cache-dtype fp8_e4m3 \
+  --chunked-prefill-size $CHUNKED_PREFILL_SIZE \
+  --max-prefill-tokens $MAX_PREFILL_TOKENS \
+  --enable-flashinfer-allreduce-fusion \
+  --scheduler-recv-interval $SCHEDULER_RECV_INTERVAL \
+  --disable-radix-cache \
+  --stream-interval 30 \
   --ep-size $EP_SIZE \
+  --moe-runner-backend flashinfer_trtllm \
   --quantization fp8 \
   --speculative-algorithm EAGLE \
   --speculative-num-steps 3 \
