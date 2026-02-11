@@ -3,6 +3,7 @@
   description:
     - "Add GLM-5 FP8 benchmark on B200 with sglang (EAGLE speculative decoding)"
     - "Update launch_b200-nb.sh HF_HUB_CACHE_MOUNT to /mnt/data/hf_cache/hub/"
+    - "Add performance optimizations: chunked-prefill (16384), flashinfer-allreduce-fusion, disable-radix-cache, moe-runner-backend flashinfer_trtllm, scheduler-recv-interval tuning, SGLANG_ENABLE_SPEC_V2, stream-interval 30, higher max-running-requests (256)"
   pr-link: https://github.com/InferenceMAX/InferenceMAX/pull/XXX
 
 - config-keys:
