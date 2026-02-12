@@ -534,4 +534,14 @@
     - "Add B200 configs for DSR1 FP4 SGLANG MTP mode for 1k1k and 8k1k"
     - "Image: lmsysorg/sglang:v0.5.8.post1-cu130"
   pr-link: https://github.com/InferenceMAX/InferenceMAX/pull/683
-  
+
+- config-keys:
+    - glm5-fp8-b200-sglang
+    - glm5-fp8-b200-sglang-mtp
+  description:
+    - "Add GLM-5 FP8 B200 benchmark configs for sglang (EAGLE + MTP)"
+    - "Image: lmsysorg/sglang:glm5-blackwell, Model: zai-org/GLM-5-FP8"
+    - "Concurrency sweep 4-128, TP8, all three seq-len configs (1k1k, 1k8k, 8k1k)"
+    - "Update launch_b200-nb.sh HF_HUB_CACHE_MOUNT to /mnt/data/hf_cache/hub/"
+  pr-link: https://github.com/InferenceMAX/InferenceMAX/pull/XXX
+
