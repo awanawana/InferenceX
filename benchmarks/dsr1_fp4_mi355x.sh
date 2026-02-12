@@ -20,7 +20,7 @@ hf download "$MODEL"
 export SGLANG_USE_AITER=1
 export ROCM_QUICK_REDUCE_QUANTIZATION=INT4
 
-PREFILL_SIZE=196608
+PREFILL_SIZE=131072
 if [[ "$ISL" == "8192" && "$OSL" == "1024" ]]; then
 	if [[ "$CONC" -gt "32" ]]; then
 		PREFILL_SIZE=32768
@@ -39,7 +39,8 @@ python3 -m sglang.launch_server --model-path=$MODEL --trust-remote-code \
 --disable-radix-cache \
 --num-continuous-decode-steps=4 \
 --max-prefill-tokens=$PREFILL_SIZE \
---cuda-graph-max-bs=128 \
+--max-running-requests 64 \
+--cuda-graph-max-bs=$CONC \
 --attention-backend aiter \
 --kv-cache-dtype fp8_e4m3 > $SERVER_LOG 2>&1 &
 

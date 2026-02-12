@@ -1,6 +1,6 @@
 dsr1-fp4-mi355x-sglang:
-  image: lmsysorg/sglang:v0.5.8-rocm700-mi35x
-  model: amd/DeepSeek-R1-0528-MXFP4-Preview
+  image: lmsysorg/sglang:v0.5.8.post1-rocm700-mi35x
+  model: amd/DeepSeek-R1-0528-MXFP4
   model-prefix: dsr1
   runner: mi355x
   precision: fp4
