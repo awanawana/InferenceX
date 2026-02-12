@@ -1825,7 +1825,6 @@ glm5-fp8-b200-sglang:
     osl: 1024
     search-space:
     - { tp: 8, ep: 1, conc-start: 4, conc-end: 128 }
-    - { tp: 8, ep: 8, dp-attn: true, conc-start: 128, conc-end: 128 }
 
 dsr1-fp8-b200-trt:
   image: nvcr.io#nvidia/tensorrt-llm/release:1.2.0rc6.post2
