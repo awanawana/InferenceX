@@ -340,6 +340,7 @@ python3 $SGLANG_WS_PATH/sync.py barrier \
     --enable-port \
     --node-ips ${IPADDRS} \
     --node-ports 5000 \
+    --wait-for-all-ports \
     --timeout 300
 
 
@@ -400,6 +401,7 @@ if [ "$NODE_RANK" -eq 0 ]; then
     BARRIER_CMD="python3 $SGLANG_WS_PATH/sync.py barrier \
         --node-ips ${IPADDRS} \
         --node-ports 8000 \
+        --wait-for-all-ports \
         --timeout 1800"
 
     if [[ "$DRY_RUN" -eq 1 ]]; then
@@ -527,6 +529,7 @@ elif [ "$NODE_RANK" -gt 0 ] && [ "$NODE_RANK" -lt "$NODE_OFFSET" ]; then
     BARRIER_CMD="python3 $SGLANG_WS_PATH/sync.py barrier \
         --node-ips ${NODE0_ADDR} \
         --node-ports 30000 \
+        --wait-for-all-ports \
         --timeout 1800"
 
     if [[ "$DRY_RUN" -eq 1 ]]; then
@@ -591,6 +594,7 @@ else
     BARRIER_CMD="python3 $SGLANG_WS_PATH/sync.py barrier \
         --node-ips ${NODE0_ADDR} \
         --node-ports 30000 \
+        --wait-for-all-ports \
         --timeout 1800"
 
     if [[ "$DRY_RUN" -eq 1 ]]; then
