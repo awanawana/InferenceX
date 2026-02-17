@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-source "$(dirname "$0")/benchmark_lib.sh"
+source "$(dirname "$0")/../benchmark_lib.sh"
 
 check_env_vars \
     MODEL \
@@ -9,38 +9,50 @@ check_env_vars \
     ISL \
     OSL \
     RANDOM_RANGE_RATIO \
-    RESULT_FILENAME
+    RESULT_FILENAME \
+    EP_SIZE \
+    DP_ATTENTION
 
 if [[ -n "$SLURM_JOB_ID" ]]; then
   echo "JOB $SLURM_JOB_ID running on $SLURMD_NODENAME"
 fi
 
-nvidia-smi
-
-hf download "$MODEL"
+echo "TP: $TP, CONC: $CONC, ISL: $ISL, OSL: $OSL, EP_SIZE: $EP_SIZE, DP_ATTENTION: $DP_ATTENTION"
 
 SERVER_LOG=/workspace/server.log
 PORT=${PORT:-8888}
 
-MEM_FRAC_STATIC=0.8
+export OMP_NUM_THREADS=1
 
-ps aux
+# Calculate max-model-len based on ISL and OSL
+if [ "$ISL" = "1024" ] && [ "$OSL" = "1024" ]; then
+    CALCULATED_MAX_MODEL_LEN=""
+else
+    CALCULATED_MAX_MODEL_LEN=" --max-model-len 10240 "
+fi
+
+if [ "$EP_SIZE" -gt 1 ]; then
+  EP=" --enable-expert-parallel"
+else
+  EP=" "
+fi
 
 set -x
-PYTHONNOUSERSITE=1 python3 -m sglang.launch_server \
-    --model-path=$MODEL \
-    --host=0.0.0.0 \
-    --port=$PORT \
-    --tensor-parallel-size=$TP \
-    --mem-fraction-static $MEM_FRAC_STATIC \
+
+export AMDGCN_USE_BUFFER_OPS=1
+
+python3 -m atom.entrypoints.openai_server \
+    --model $MODEL \
+    --server-port $PORT \
+    -tp $TP \
+    --kv_cache_dtype fp8 $CALCULATED_MAX_MODEL_LEN $EP \
+    --method mtp \
     > $SERVER_LOG 2>&1 &
 
 SERVER_PID=$!
 
 # Wait for server to be ready
 wait_for_server_ready --port "$PORT" --server-log "$SERVER_LOG" --server-pid "$SERVER_PID"
-
-pip install -q datasets pandas
 
 run_benchmark_serving \
     --model "$MODEL" \
@@ -52,7 +64,8 @@ run_benchmark_serving \
     --num-prompts "$((CONC * 10))" \
     --max-concurrency "$CONC" \
     --result-filename "$RESULT_FILENAME" \
-    --result-dir /workspace/
+    --result-dir /workspace/ \
+    --use-chat-template 
 
 # After throughput, run evaluation only if RUN_EVAL is true
 if [ "${RUN_EVAL}" = "true" ]; then
