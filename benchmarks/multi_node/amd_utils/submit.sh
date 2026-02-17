@@ -71,6 +71,7 @@ PREFILL_ENABLE_DP=${10:-1}
 DECODE_ENABLE_EP=${11:-1}
 DECODE_ENABLE_DP=${12:-1}
 RANDOM_RANGE_RATIO=${13}
+NODE_LIST=${14}
 
 
 NUM_NODES=$((PREFILL_NODES + DECODE_NODES))
@@ -108,12 +109,27 @@ export BENCH_REQUEST_RATE=${REQUEST_RATE}
 export BENCHMARK_LOGS_DIR="${BENCHMARK_LOGS_DIR:-$(pwd)/benchmark_logs}"
 mkdir -p "$BENCHMARK_LOGS_DIR"
 
+# Optional: pass an explicit node list to sbatch.
+# NODE_LIST is expected to be comma-separated hostnames.
+NODELIST_OPT=()
+if [[ -n "${NODE_LIST//[[:space:]]/}" ]]; then
+    IFS=',' read -r -a NODE_ARR <<< "$NODE_LIST"
+    if [[ "${#NODE_ARR[@]}" -ne "$NUM_NODES" ]]; then
+        echo "Error: NODE_LIST has ${#NODE_ARR[@]} nodes but NUM_NODES=${NUM_NODES}" >&2
+        echo "Error: NODE_LIST='${NODE_LIST}'" >&2
+        exit 1
+    fi
+    NODELIST_CSV="$(IFS=,; echo "${NODE_ARR[*]}")"
+    NODELIST_OPT=(--nodelist "$NODELIST_CSV")
+fi
+
 # Construct the sbatch command
 sbatch_cmd=(
     sbatch
     --parsable
     -N "$NUM_NODES"
     -n "$NUM_NODES"
+    "${NODELIST_OPT[@]}"
     --time "$TIME_LIMIT"
     --partition "$SLURM_PARTITION"
     --account "$SLURM_ACCOUNT"

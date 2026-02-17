@@ -48,6 +48,12 @@ export SGLANG_MORI_FP8_DISP=True
 
 export SGLANG_MORI_NUM_MAX_DISPATCH_TOKENS_PER_RANK=16384
 
+# Per-role dispatch token limits (prefill uses higher throughput, decode uses lower)
+export MORI_MAX_DISPATCH_TOKENS_PREFILL=16384
+export MORI_MAX_DISPATCH_TOKENS_DECODE=320
+
+export MORI_EP_LAUNCH_CONFIG_MODE=AUTO
+
 export MORI_APP_LOG_LEVEL=INFO
 
 # Router logging control:

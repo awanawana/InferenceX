@@ -105,6 +105,12 @@ def eval_formula(val):
         print(f'echo \"WARNING: Cannot evaluate formula: {s} ({e})\"', file=sys.stderr)
         return val
 
+def parse_range(cuda_range, default_start, default_end):
+    if '-' in str(cuda_range):
+        s, e = str(cuda_range).split('-')
+        return s, e
+    return str(default_start), str(default_end)
+
 # Output shell variables
 print(f'MODEL_BASE_FLAGS=\"{m.get(\"base_flags\", \"\")}\"')
 print(f'MODEL_MTP_FLAGS=\"{m.get(\"mtp_flags\", \"\")}\"')
@@ -118,45 +124,42 @@ print(f'PREFILL_DISABLE_RADIX_CACHE=\"{prefill.get(\"disable_radix_cache\", True
 
 dp = prefill.get('dp', {})
 no_dp = prefill.get('no_dp', {})
-print(f'PREFILL_MAX_RUNNING_REQUESTS_DP=\"{dp.get(\"max_running_requests\", 8)}\"')
+print(f'PREFILL_MAX_RUNNING_REQUESTS_DP=\"{dp.get(\"max_running_requests\", 24)}\"')
 print(f'PREFILL_CHUNKED_PREFILL_SIZE_DP=\"{eval_formula(dp.get(\"chunked_prefill_size\", 262144))}\"')
 print(f'PREFILL_CUDA_GRAPH_BS_DP=\"{dp.get(\"cuda_graph_bs\", \"1 2 3\")}\"')
 print(f'PREFILL_MAX_RUNNING_REQUESTS_NO_DP=\"{no_dp.get(\"max_running_requests\", 128)}\"')
 print(f'PREFILL_CHUNKED_PREFILL_SIZE_NO_DP=\"{eval_formula(no_dp.get(\"chunked_prefill_size\", 262144))}\"')
-cuda_range = no_dp.get('cuda_graph_bs_range', '1-128')
-if '-' in str(cuda_range):
-    s, e = str(cuda_range).split('-')
-    print(f'PREFILL_CUDA_GRAPH_BS_NO_DP_START=\"{s}\"')
-    print(f'PREFILL_CUDA_GRAPH_BS_NO_DP_END=\"{e}\"')
-else:
-    print(f'PREFILL_CUDA_GRAPH_BS_NO_DP_START=\"1\"')
-    print(f'PREFILL_CUDA_GRAPH_BS_NO_DP_END=\"128\"')
+s, e = parse_range(no_dp.get('cuda_graph_bs_range', '1-128'), 1, 128)
+print(f'PREFILL_CUDA_GRAPH_BS_NO_DP_START=\"{s}\"')
+print(f'PREFILL_CUDA_GRAPH_BS_NO_DP_END=\"{e}\"')
 
-print(f'DECODE_MEM_FRACTION_STATIC=\"{decode.get(\"mem_fraction_static\", 0.6)}\"')
+print(f'DECODE_MEM_FRACTION_STATIC=\"{decode.get(\"mem_fraction_static\", 0.85)}\"')
 print(f'DECODE_PREFILL_ROUND_ROBIN_BALANCE=\"{decode.get(\"prefill_round_robin_balance\", True)}\"')
 
 dp = decode.get('dp', {})
+ep_only = decode.get('ep_only', {})
 no_dp = decode.get('no_dp', {})
-print(f'DECODE_MAX_RUNNING_REQUESTS_DP=\"{dp.get(\"max_running_requests\", 8192)}\"')
+
+# Decode DP config
+print(f'DECODE_MAX_RUNNING_REQUESTS_DP=\"{dp.get(\"max_running_requests\", 4096)}\"')
 print(f'DECODE_CHUNKED_PREFILL_SIZE_DP=\"{eval_formula(dp.get(\"chunked_prefill_size\", 262144))}\"')
-cuda_range = dp.get('cuda_graph_bs_range', '1-128')
-if '-' in str(cuda_range):
-    s, e = str(cuda_range).split('-')
-    print(f'DECODE_CUDA_GRAPH_BS_DP_START=\"{s}\"')
-    print(f'DECODE_CUDA_GRAPH_BS_DP_END=\"{e}\"')
-else:
-    print(f'DECODE_CUDA_GRAPH_BS_DP_START=\"1\"')
-    print(f'DECODE_CUDA_GRAPH_BS_DP_END=\"128\"')
-print(f'DECODE_MAX_RUNNING_REQUESTS_NO_DP=\"{no_dp.get(\"max_running_requests\", 256)}\"')
+s, e = parse_range(dp.get('cuda_graph_bs_range', '1-160'), 1, 160)
+print(f'DECODE_CUDA_GRAPH_BS_DP_START=\"{s}\"')
+print(f'DECODE_CUDA_GRAPH_BS_DP_END=\"{e}\"')
+
+# Decode EP-only config (EP enabled but DP disabled)
+print(f'DECODE_MAX_RUNNING_REQUESTS_EP_ONLY=\"{ep_only.get(\"max_running_requests\", 256)}\"')
+print(f'DECODE_CHUNKED_PREFILL_SIZE_EP_ONLY=\"{eval_formula(ep_only.get(\"chunked_prefill_size\", 262144))}\"')
+s, e = parse_range(ep_only.get('cuda_graph_bs_range', '1-256'), 1, 256)
+print(f'DECODE_CUDA_GRAPH_BS_EP_ONLY_START=\"{s}\"')
+print(f'DECODE_CUDA_GRAPH_BS_EP_ONLY_END=\"{e}\"')
+
+# Decode no-DP config
+print(f'DECODE_MAX_RUNNING_REQUESTS_NO_DP=\"{no_dp.get(\"max_running_requests\", 128)}\"')
 print(f'DECODE_CHUNKED_PREFILL_SIZE_NO_DP=\"{eval_formula(no_dp.get(\"chunked_prefill_size\", 262144))}\"')
-cuda_range = no_dp.get('cuda_graph_bs_range', '1-256')
-if '-' in str(cuda_range):
-    s, e = str(cuda_range).split('-')
-    print(f'DECODE_CUDA_GRAPH_BS_NO_DP_START=\"{s}\"')
-    print(f'DECODE_CUDA_GRAPH_BS_NO_DP_END=\"{e}\"')
-else:
-    print(f'DECODE_CUDA_GRAPH_BS_NO_DP_START=\"1\"')
-    print(f'DECODE_CUDA_GRAPH_BS_NO_DP_END=\"256\"')
+s, e = parse_range(no_dp.get('cuda_graph_bs_range', '1-128'), 1, 128)
+print(f'DECODE_CUDA_GRAPH_BS_NO_DP_START=\"{s}\"')
+print(f'DECODE_CUDA_GRAPH_BS_NO_DP_END=\"{e}\"')
 ")"
 
 echo "Loaded model configuration for: $MODEL_NAME"
@@ -172,11 +175,15 @@ else
     prefill_chunked_prefill_size=$PREFILL_CHUNKED_PREFILL_SIZE_NO_DP
 fi
 
-# Compute DP-dependent decode parameters
+# Compute DP-dependent decode parameters (3-way: DP > EP-only > no_dp)
 if [[ "$DECODE_ENABLE_DP" == "true" ]]; then
     decode_cuda_graph_bs=($(seq $DECODE_CUDA_GRAPH_BS_DP_START $DECODE_CUDA_GRAPH_BS_DP_END))
     decode_max_running_requests=$DECODE_MAX_RUNNING_REQUESTS_DP
     decode_chunked_prefill_size=$DECODE_CHUNKED_PREFILL_SIZE_DP
+elif [[ "$DECODE_ENABLE_EP" == "true" ]]; then
+    decode_cuda_graph_bs=($(seq $DECODE_CUDA_GRAPH_BS_EP_ONLY_START $DECODE_CUDA_GRAPH_BS_EP_ONLY_END))
+    decode_max_running_requests=$DECODE_MAX_RUNNING_REQUESTS_EP_ONLY
+    decode_chunked_prefill_size=$DECODE_CHUNKED_PREFILL_SIZE_EP_ONLY
 else
     decode_cuda_graph_bs=($(seq $DECODE_CUDA_GRAPH_BS_NO_DP_START $DECODE_CUDA_GRAPH_BS_NO_DP_END))
     decode_max_running_requests=$DECODE_MAX_RUNNING_REQUESTS_NO_DP
@@ -268,7 +275,7 @@ build_server_config() {
 
     # MTP config (only if MTP is enabled and mode is decode)
     if [ "$decode_mtp_size" -gt 0 ]; then
-        mtp_config="${MODEL_MTP_FLAGS} --speculative-num-draft-tokens ${decode_mtp_size}"
+        mtp_config="${MODEL_MTP_FLAGS} --speculative-num-steps ${decode_mtp_size} --speculative-num-draft-tokens $((decode_mtp_size + 1))"
     fi
 
     # DP config (only if DP is enabled)
@@ -343,10 +350,12 @@ if [ "$NODE_RANK" -eq 0 ]; then
     echo "Decode  parallelism: TP=${DECODE_TP_SIZE},  EP enabled: ${DECODE_ENABLE_EP},  DP enabled: ${DECODE_ENABLE_DP},  MTP size=${DECODE_MTP_SIZE}"
     echo "Prefill servers ($((PREFILL_TP_SIZE/GPUS_PER_NODE)) nodes): ${PREFILL_ARGS}"
     echo "Decode servers  ($((DECODE_TP_SIZE/GPUS_PER_NODE))  nodes): ${DECODE_ARGS}"
+    echo "Prefill env: SGLANG_MORI_NUM_MAX_DISPATCH_TOKENS_PER_RANK: ${MORI_MAX_DISPATCH_TOKENS_PREFILL}"
+    echo "Decode env: SGLANG_MORI_NUM_MAX_DISPATCH_TOKENS_PER_RANK=${MORI_MAX_DISPATCH_TOKENS_DECODE}"
     echo "================================================"
 
     # start the head prefill server
-    PREFILL_CMD="python3 -m sglang.launch_server \
+    PREFILL_CMD="SGLANG_MORI_NUM_MAX_DISPATCH_TOKENS_PER_RANK=${MORI_MAX_DISPATCH_TOKENS_PREFILL} python3 -m sglang.launch_server \
         --model-path $MODEL_DIR/$MODEL_NAME \
         --disaggregation-mode prefill \
         --disaggregation-ib-device ${IBDEVICES} \
@@ -389,8 +398,10 @@ if [ "$NODE_RANK" -eq 0 ]; then
 
     ROUTER_CMD="python -m sglang_router.launch_router \
         --pd-disaggregation \
-        --mini-lb \
         --port 30000 \
+        --policy random \
+        --prefill-policy random \
+        --decode-policy random \
         ${PREFILL_ARGS} \
         ${DECODE_ARGS}"
 
@@ -407,6 +418,22 @@ if [ "$NODE_RANK" -eq 0 ]; then
         fi
         set +x
         proxy_pid=$!
+
+        # Wait for router to be ready via health endpoint
+        HEALTH_BARRIER_CMD="python3 $SGLANG_WS_PATH/sync.py barrier \
+            --node-ips ${NODE0_ADDR} \
+            --node-ports 30000 \
+            --wait-for-all-health \
+            --health-endpoint /readiness \
+            --timeout 1800"
+
+        if [[ "$DRY_RUN" -eq 1 ]]; then
+            echo "DRY RUN: $HEALTH_BARRIER_CMD"
+        else
+            eval "$HEALTH_BARRIER_CMD"
+        fi
+
+        echo "Router is ready for benchmarking"
     fi
 
 
@@ -457,7 +484,7 @@ elif [ "$NODE_RANK" -gt 0 ] && [ "$NODE_RANK" -lt "$NODE_OFFSET" ]; then
     echo "Using prefill config: $PREFILL_SERVER_CONFIG"
     echo "Prefill parallelism: TP=${PREFILL_TP_SIZE}, EP enabled: ${PREFILL_ENABLE_EP}, DP enabled: ${PREFILL_ENABLE_DP}"
 
-    PREFILL_CMD="python3 -m sglang.launch_server \
+    PREFILL_CMD="SGLANG_MORI_NUM_MAX_DISPATCH_TOKENS_PER_RANK=${MORI_MAX_DISPATCH_TOKENS_PREFILL} python3 -m sglang.launch_server \
         --model-path $MODEL_DIR/${MODEL_NAME} \
         --disaggregation-mode prefill \
         --disaggregation-ib-device ${IBDEVICES} \
@@ -519,7 +546,7 @@ else
     echo "Decode node rank: $RANK"
     echo "Decode parallelism: TP=${DECODE_TP_SIZE}, EP enabled: ${DECODE_ENABLE_EP}, DP enabled: ${DECODE_ENABLE_DP}"
 
-    DECODE_CMD="python3 -m sglang.launch_server \
+    DECODE_CMD="SGLANG_MORI_NUM_MAX_DISPATCH_TOKENS_PER_RANK=${MORI_MAX_DISPATCH_TOKENS_DECODE} python3 -m sglang.launch_server \
         --model-path ${MODEL_DIR}/${MODEL_NAME} \
         --disaggregation-mode decode \
         --disaggregation-ib-device ${IBDEVICES} \
