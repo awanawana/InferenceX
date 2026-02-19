@@ -17,26 +17,18 @@ fi
 
 hf download "$MODEL"
 
-export SGLANG_USE_AITER=1
-export RCCL_MSCCL_ENABLE=0
-export ROCM_QUICK_REDUCE_QUANTIZATION=INT4
-
 SERVER_LOG=/workspace/server.log
 PORT=${PORT:-8888}
 
 python3 -m sglang.launch_server \
-    --attention-backend aiter \
+    --attention-backend triton \
     --model-path $MODEL \
     --host=0.0.0.0 \
     --port $PORT \
     --tensor-parallel-size $TP \
     --trust-remote-code \
     --quantization fp8 \
-    --chunked-prefill-size 196608 \
-    --mem-fraction-static 0.8 --disable-radix-cache \
-    --num-continuous-decode-steps 4 \
-    --max-prefill-tokens 196608 \
-    --cuda-graph-max-bs $CONC > $SERVER_LOG 2>&1 &
+    --mem-fraction-static 0.8 > $SERVER_LOG 2>&1 &
 
 SERVER_PID=$!
 
