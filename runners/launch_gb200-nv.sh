@@ -480,23 +480,25 @@ if [[ -z "${EPD:-}" && "$MODEL_PREFIX" == "qwen3.5" && -n "${CONFIG_FILE:-}" ]];
     echo "[INFO] Qwen3.5 PD mode: generating recipe at '${CONFIG_FILE}'"
     mkdir -p "$(dirname "${CONFIG_FILE}")"
 
-    # Compute stage node counts
-    # With dp-attention, each worker's world = max(tp, ep) * dp_size, but
-    # srtctl computes dp from total GPUs, so we just need nodes = total_gpus / gpus_per_node.
+    # All values come from env vars set by the workflow (from nvidia-master.yaml).
+    # To change the layout, edit only the yaml — no defaults to update here.
     GPUS_PER_NODE=4
-    PREFILL_TP_VAL=${PREFILL_TP:-1}
-    PREFILL_EP_VAL=${PREFILL_EP:-2}
-    DECODE_TP_VAL=${DECODE_TP:-1}
-    DECODE_EP_VAL=${DECODE_EP:-2}
 
-    # For dp-attention workers: each worker uses GPUS_PER_NODE GPUs (1 node)
-    # with dp_attention across all GPUs on that node.
-    PREFILL_NODES_PER_WORKER=1
-    # Decode: 32 GPUs = 8 nodes for 1 worker with dp-attention
-    DECODE_NODES_PER_WORKER=${DECODE_NODES_PER_WORKER:-8}
+    # PREFILL_TP / PREFILL_EP / DECODE_TP / DECODE_EP are set by the workflow
+    # from the yaml config's prefill.tp, prefill.ep, decode.tp, decode.ep fields.
+    PREFILL_TP_VAL=${PREFILL_TP:?PREFILL_TP must be set}
+    PREFILL_EP_VAL=${PREFILL_EP:?PREFILL_EP must be set}
+    DECODE_TP_VAL=${DECODE_TP:?DECODE_TP must be set}
+    DECODE_EP_VAL=${DECODE_EP:?DECODE_EP must be set}
 
-    GEN_PREFILL_WORKERS=${PREFILL_NUM_WORKERS:-10}
-    GEN_DECODE_WORKERS=${DECODE_NUM_WORKERS:-1}
+    # Compute nodes per worker from tp_size (= total GPUs per worker)
+    PREFILL_NODES_PER_WORKER=$(( PREFILL_TP_VAL / GPUS_PER_NODE ))
+    if [[ ${PREFILL_NODES_PER_WORKER} -lt 1 ]]; then PREFILL_NODES_PER_WORKER=1; fi
+    DECODE_NODES_PER_WORKER=$(( DECODE_TP_VAL / GPUS_PER_NODE ))
+    if [[ ${DECODE_NODES_PER_WORKER} -lt 1 ]]; then DECODE_NODES_PER_WORKER=1; fi
+
+    GEN_PREFILL_WORKERS=${PREFILL_NUM_WORKERS:?PREFILL_NUM_WORKERS must be set}
+    GEN_DECODE_WORKERS=${DECODE_NUM_WORKERS:?DECODE_NUM_WORKERS must be set}
     GEN_PREFILL_NODES=$(( PREFILL_NODES_PER_WORKER * GEN_PREFILL_WORKERS ))
     GEN_DECODE_NODES=$(( DECODE_NODES_PER_WORKER * GEN_DECODE_WORKERS ))
 
@@ -507,6 +509,11 @@ if [[ -z "${EPD:-}" && "$MODEL_PREFIX" == "qwen3.5" && -n "${CONFIG_FILE:-}" ]];
     else
         PD_QUANT_ARGS=""
     fi
+
+    # dp_size must be set explicitly (via PREFILL_DP / DECODE_DP in additional-settings).
+    # attn_tp = tp_size / dp_size, so dp_size controls the attention TP degree.
+    PREFILL_DP_VAL=${PREFILL_DP:?PREFILL_DP must be set in additional-settings}
+    DECODE_DP_VAL=${DECODE_DP:?DECODE_DP must be set in additional-settings}
 
     DECODE_BOOTSTRAP_PORT=${PD_DECODE_BOOTSTRAP_PORT:-$((53000 + RANDOM % 1000))}
     echo "[INFO] Using PD bootstrap port: decode=${DECODE_BOOTSTRAP_PORT}"
@@ -535,6 +542,7 @@ backend:
     prefill:
       tp-size: ${PREFILL_TP_VAL}
       ep-size: ${PREFILL_EP_VAL}
+      dp-size: ${PREFILL_DP_VAL}
       enable-dp-attention: true
       disaggregation-mode: prefill
       disaggregation-transfer-backend: nixl
@@ -545,6 +553,7 @@ backend:
     decode:
       tp-size: ${DECODE_TP_VAL}
       ep-size: ${DECODE_EP_VAL}
+      dp-size: ${DECODE_DP_VAL}
       enable-dp-attention: true
       disaggregation-mode: decode
       disaggregation-transfer-backend: nixl
