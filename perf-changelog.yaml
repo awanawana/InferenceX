@@ -689,3 +689,9 @@
     - "Add context-length, tokenizer-worker-num, env tuning (NCCL_NVLS_ENABLE, SGLANG_ENABLE_FLASHINFER_GEMM)"
     - "Set cuda-graph-max-bs to match concurrency, scheduler-recv-interval based on concurrency"
   pr-link: https://github.com/SemiAnalysisAI/InferenceX/pull/758
+
+- config-keys:
+    - gptoss-fp4-*-vllm
+  description:
+    - "Update NVIDIA GPT-OSS 120B vLLM image from v0.13.0 to v0.16.0"
+  pr-link: https://github.com/SemiAnalysisAI/InferenceX/pull/XXX
