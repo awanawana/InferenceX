@@ -470,6 +470,164 @@ EOF
     fi
 fi
 
+# --- Qwen3.5 PD (Prefill/Decode) text-only disaggregation ---
+# Same on-the-fly recipe generation as EPD but without encoder servers,
+# language-only mode, or encoder-urls.
+if [[ -z "${EPD:-}" && "$MODEL_PREFIX" == "qwen3.5" && -n "${CONFIG_FILE:-}" ]]; then
+    echo "[INFO] Qwen3.5 PD mode: generating recipe at '${CONFIG_FILE}'"
+    mkdir -p "$(dirname "${CONFIG_FILE}")"
+
+    # Compute stage node counts: nodes_per_worker = ceil(max(tp, ep) / gpus_per_node)
+    GPUS_PER_NODE=4
+    PREFILL_TP_VAL=${PREFILL_TP:-8}
+    PREFILL_EP_VAL=${PREFILL_EP:-${PREFILL_TP_VAL}}
+    DECODE_TP_VAL=${DECODE_TP:-8}
+    DECODE_EP_VAL=${DECODE_EP:-${DECODE_TP_VAL}}
+
+    PREFILL_WORLD=${PREFILL_TP_VAL}
+    if [[ ${PREFILL_EP_VAL} -gt ${PREFILL_WORLD} ]]; then PREFILL_WORLD=${PREFILL_EP_VAL}; fi
+    DECODE_WORLD=${DECODE_TP_VAL}
+    if [[ ${DECODE_EP_VAL} -gt ${DECODE_WORLD} ]]; then DECODE_WORLD=${DECODE_EP_VAL}; fi
+
+    PREFILL_NODES_PER_WORKER=$(( (PREFILL_WORLD + GPUS_PER_NODE - 1) / GPUS_PER_NODE ))
+    DECODE_NODES_PER_WORKER=$(( (DECODE_WORLD + GPUS_PER_NODE - 1) / GPUS_PER_NODE ))
+
+    GEN_PREFILL_WORKERS=${PREFILL_NUM_WORKERS:-1}
+    GEN_DECODE_WORKERS=${DECODE_NUM_WORKERS:-1}
+    GEN_PREFILL_NODES=$(( PREFILL_NODES_PER_WORKER * GEN_PREFILL_WORKERS ))
+    GEN_DECODE_NODES=$(( DECODE_NODES_PER_WORKER * GEN_DECODE_WORKERS ))
+
+    # Build quantization args based on precision
+    if [[ "${PRECISION}" == "fp8" ]]; then
+        PD_QUANT_ARGS="quantization: fp8
+      kv-cache-dtype: fp8_e4m3"
+    else
+        PD_QUANT_ARGS=""
+    fi
+
+    DECODE_BOOTSTRAP_PORT=${PD_DECODE_BOOTSTRAP_PORT:-$((53000 + RANDOM % 1000))}
+    echo "[INFO] Using PD bootstrap port: decode=${DECODE_BOOTSTRAP_PORT}"
+
+    cat > "${CONFIG_FILE}" <<EOF
+name: qwen3.5-pd-${PRECISION}-gb200
+model:
+  path: ${SRT_SLURM_MODEL_PREFIX}
+  container: dynamo-sglang
+  precision: ${PRECISION}
+resources:
+  gpu_type: gb200
+  gpus_per_node: 4
+  prefill_nodes: ${GEN_PREFILL_NODES}
+  prefill_workers: ${GEN_PREFILL_WORKERS}
+  decode_nodes: ${GEN_DECODE_NODES}
+  decode_workers: ${GEN_DECODE_WORKERS}
+infra:
+  etcd_nats_dedicated_node: true
+backend:
+  type: sglang
+  sglang_config:
+    prefill:
+      tp-size: ${PREFILL_TP_VAL}
+      ep-size: ${PREFILL_EP_VAL}
+      disaggregation-mode: prefill
+      disaggregation-transfer-backend: nixl
+      disaggregation-bootstrap-port: ${DECODE_BOOTSTRAP_PORT}
+      trust-remote-code: true
+      ${PD_QUANT_ARGS}
+      context-length: ${MAX_MODEL_LEN}
+    decode:
+      tp-size: ${DECODE_TP_VAL}
+      ep-size: ${DECODE_EP_VAL}
+      disaggregation-mode: decode
+      disaggregation-transfer-backend: nixl
+      disaggregation-bootstrap-port: ${DECODE_BOOTSTRAP_PORT}
+      trust-remote-code: true
+      ${PD_QUANT_ARGS}
+      context-length: ${MAX_MODEL_LEN}
+benchmark:
+  type: sa-bench
+  isl: ${ISL}
+  osl: ${OSL}
+  concurrencies: [64]
+EOF
+
+    # Setup script: torchao + bootstrap_room patch (no encoder servers)
+    cat > configs/qwen3.5-pd-setup.sh <<'EOF'
+#!/usr/bin/env bash
+set -euxo pipefail
+
+# Install torchao if the repo provides the helper (used for fp8 runs)
+if [[ -f /configs/install-torchao.sh ]]; then
+  bash /configs/install-torchao.sh
+fi
+
+# Patch bootstrap_room overflow: values can exceed int64 max (2^63-1) causing
+# "Overflow when unpacking long long".  Convert to signed two's complement
+# before storing in the int64 tensor.
+python3 - <<'PY'
+from pathlib import Path
+
+# Helper: convert unsigned bootstrap_room to signed two's complement int64
+SIGNED_CONV = """
+def _to_signed_i64(v):
+    return v - (1 << 64) if v > 0x7FFFFFFFFFFFFFFF else v
+""".strip()
+
+# ---------- 1. Patch utils.py  (set_buf: store as signed int64) ----------
+p_utils = Path("/sgl-workspace/sglang/python/sglang/srt/disaggregation/utils.py")
+txt = p_utils.read_text()
+
+old_set = (
+    "self.bootstrap_room[req.metadata_buffer_index, 0] = (\n"
+    "            req.bootstrap_room if req.bootstrap_room is not None else 0\n"
+    "        )"
+)
+new_set = (
+    "_br = req.bootstrap_room if req.bootstrap_room is not None else 0\n"
+    "        self.bootstrap_room[req.metadata_buffer_index, 0] = _to_signed_i64(_br)"
+)
+
+if old_set not in txt:
+    raise SystemExit(f"[bootstrap_room patch] set_buf pattern not found in {p_utils}")
+
+# Inject the helper function near the top of the file (after imports)
+if "_to_signed_i64" not in txt:
+    anchor = "if TYPE_CHECKING:"
+    if anchor not in txt:
+        raise SystemExit(f"[bootstrap_room patch] Cannot find anchor '{anchor}' in {p_utils}")
+    txt = txt.replace(anchor, SIGNED_CONV + "\n\n" + anchor, 1)
+
+txt = txt.replace(old_set, new_set, 1)
+p_utils.write_text(txt)
+print(f"[bootstrap_room patch] Patched {p_utils}")
+
+# ---------- 2. Patch decode.py (validation: convert expected to signed) ----------
+p_decode = Path("/sgl-workspace/sglang/python/sglang/srt/disaggregation/decode.py")
+txt = p_decode.read_text()
+
+old_expected = (
+    "expected_room = (\n"
+    "            decode_req.req.bootstrap_room\n"
+    "            if decode_req.req.bootstrap_room is not None\n"
+    "            else 0\n"
+    "        )"
+)
+new_expected = (
+    "_er = decode_req.req.bootstrap_room if decode_req.req.bootstrap_room is not None else 0\n"
+    "        expected_room = _er - (1 << 64) if _er > 0x7FFFFFFFFFFFFFFF else _er"
+)
+
+if old_expected not in txt:
+    raise SystemExit(f"[bootstrap_room patch] expected_room pattern not found in {p_decode}")
+txt = txt.replace(old_expected, new_expected, 1)
+p_decode.write_text(txt)
+print(f"[bootstrap_room patch] Patched {p_decode}")
+PY
+EOF
+    chmod +x configs/qwen3.5-pd-setup.sh
+    SETUP_SCRIPT="qwen3.5-pd-setup.sh"
+fi
+
 # Default setup script for dynamo-sglang (fp8 tooling)
 if [[ "$FRAMEWORK" == "dynamo-sglang" && -z "${SETUP_SCRIPT}" ]]; then
     SETUP_SCRIPT="install-torchao.sh"
