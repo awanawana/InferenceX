@@ -39,8 +39,8 @@ def mark_eval_entries(matrix_values: list[dict]) -> list[dict]:
       spec-decoding, dp-attn), mark highest TP with highest conc and lowest TP
       with highest conc.
     - Multi-node: for each unique (model, runner, framework, precision,
-      spec-decoding), prefer 1k8k entries if available, otherwise fall back to
-      any seq-len. Mark the entry with the highest max concurrency.
+      spec-decoding), prefer 1k8k entries; fall back to 8k1k if unavailable
+      (never 1k1k). Mark the entry with the highest max concurrency.
 
     Grouping includes spec-decoding so MTP (mtp) and non-MTP (none) are treated
     independently.
@@ -105,9 +105,9 @@ def mark_eval_entries(matrix_values: list[dict]) -> list[dict]:
 
     # --- Multi-node eval selection ---
     # For multi-node (disaggregated) entries, pick one representative per group.
-    # Prefer 1k8k if available (matching single-node policy), otherwise fall back
-    # to whatever seq-len exists so eval coverage is not skipped entirely.
+    # Prefer 1k8k; fall back to 8k1k if unavailable (never 1k1k).
     # Within a group, pick the entry with the highest max concurrency.
+    fallback_isl, fallback_osl = seq_len_stoi["8k1k"]
     mn_groups = defaultdict(list)
     for i, entry in enumerate(matrix_values):
         if Fields.TP.value in entry:
@@ -128,17 +128,22 @@ def mark_eval_entries(matrix_values: list[dict]) -> list[dict]:
         if not entries:
             continue
 
-        # Prefer 1k8k entries; fall back to all entries if none exist
+        # Prefer 1k8k entries; fall back to 8k1k
         preferred = [(i, e) for i, e in entries
                      if e.get(Fields.ISL.value) == target_isl
                      and e.get(Fields.OSL.value) == target_osl]
-        candidates = preferred if preferred else entries
+        if not preferred:
+            preferred = [(i, e) for i, e in entries
+                         if e.get(Fields.ISL.value) == fallback_isl
+                         and e.get(Fields.OSL.value) == fallback_osl]
+        if not preferred:
+            continue
 
         # Pick entry with highest max concurrency
         def _max_conc(ie):
             c = ie[1][Fields.CONC.value]
             return max(c) if isinstance(c, list) else c
-        best = max(candidates, key=_max_conc)
+        best = max(preferred, key=_max_conc)
         eval_indices.add(best[0])
 
     # Mark the selected entries

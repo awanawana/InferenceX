@@ -110,6 +110,7 @@ export PRECISION="${PRECISION:-}"
 export MODEL_PREFIX="${MODEL_PREFIX:-}"
 export RUNNER_TYPE="${RUNNER_TYPE:-}"
 export RESULT_FILENAME="${RESULT_FILENAME:-}"
+export SPEC_DECODING="${SPEC_DECODING:-}"
 
 # Log directory: must be on NFS (shared filesystem) so the submit host can read SLURM output.
 # SLURM writes output files on the batch node, so /tmp won't work (node-local).
