@@ -14,7 +14,8 @@ InferenceX™ (formerly InferenceMAX) is an inference performance research platf
 [Full Article Write Up for InferenceXv1](https://newsletter.semianalysis.com/p/inferencemax-open-source-inference)
 
 
-<img width="1627" height="1022" alt="CleanShot 2026-02-04 at 15 26 09" src="https://github.com/user-attachments/assets/65110e16-7590-424f-884d-12876d9e8f3e" />
+<img width="1150" height="665" alt="image" src="https://github.com/user-attachments/assets/1e9738d4-6fb2-4cd7-a3e9-e6b2e03faed1" />
+<img width="1098" height="655" alt="image" src="https://github.com/user-attachments/assets/5b363271-69b9-4bd2-b85d-b33b9c16f50f" />
 
 
 ## Why?
