@@ -695,6 +695,14 @@
   description:
     - "Add more configs for MI355X FP8 Disagg"
   pr-link: https://github.com/SemiAnalysisAI/InferenceX/pull/770
+  
+- config-keys:
+    - gptoss-fp4-mi300x-vllm
+    - gptoss-fp4-mi325x-vllm
+  description:
+    - "Update vLLM ROCm image from v0.14.0 to v0.15.1 for MI300X and MI325X GPT-OSS"
+    - "Gains: ROCm skinny GEMM dispatch fix, MoRI EP all2all backend, KV cache shuffle + paged attention for AITER"
+  pr-link: https://github.com/SemiAnalysisAI/InferenceX/pull/781
 
 - config-keys:
     - kimik2.5-int4-b200-vllm
