@@ -341,7 +341,7 @@ fi
 
 # Patch bootstrap_room overflow: Dynamo generates u64 room IDs that can exceed
 # int64 max, causing "Overflow when unpacking long long" in PyTorch scalar
-# assignment.  Fix: change buffer dtype to uint64, and use numpy+copy_ to
+# assignment.  Fix: change buffer dtype to uint64, and use torch.tensor() to
 # bypass PyTorch's broken scalar unpacking path (pytorch/pytorch#159168).
 python3 - <<'PY'
 from pathlib import Path
@@ -364,16 +364,11 @@ old_set = (
 )
 new_set = (
     "_br = req.bootstrap_room if req.bootstrap_room is not None else 0\n"
-    "        self.bootstrap_room[req.metadata_buffer_index, 0:1].copy_(\n"
-    "            torch.from_numpy(np.array([_br], dtype=np.uint64)))"
+    "        self.bootstrap_room[req.metadata_buffer_index, 0:1] = torch.tensor([_br], dtype=torch.uint64, device=self.bootstrap_room.device)"
 )
 if old_set not in txt:
     raise SystemExit(f"[bootstrap_room patch] set_buf pattern not found in {p_utils}")
 txt = txt.replace(old_set, new_set, 1)
-
-# 3. Ensure numpy is imported
-if "import numpy as np" not in txt:
-    txt = "import numpy as np\n" + txt
 
 p_utils.write_text(txt)
 print(f"[bootstrap_room patch] Patched {p_utils}")
@@ -555,7 +550,7 @@ fi
 
 # Patch bootstrap_room overflow: Dynamo generates u64 room IDs that can exceed
 # int64 max, causing "Overflow when unpacking long long" in PyTorch scalar
-# assignment.  Fix: change buffer dtype to uint64, and use numpy+copy_ to
+# assignment.  Fix: change buffer dtype to uint64, and use torch.tensor() to
 # bypass PyTorch's broken scalar unpacking path (pytorch/pytorch#159168).
 python3 - <<'PY'
 from pathlib import Path
@@ -578,16 +573,11 @@ old_set = (
 )
 new_set = (
     "_br = req.bootstrap_room if req.bootstrap_room is not None else 0\n"
-    "        self.bootstrap_room[req.metadata_buffer_index, 0:1].copy_(\n"
-    "            torch.from_numpy(np.array([_br], dtype=np.uint64)))"
+    "        self.bootstrap_room[req.metadata_buffer_index, 0:1] = torch.tensor([_br], dtype=torch.uint64, device=self.bootstrap_room.device)"
 )
 if old_set not in txt:
     raise SystemExit(f"[bootstrap_room patch] set_buf pattern not found in {p_utils}")
 txt = txt.replace(old_set, new_set, 1)
-
-# 3. Ensure numpy is imported
-if "import numpy as np" not in txt:
-    txt = "import numpy as np\n" + txt
 
 p_utils.write_text(txt)
 print(f"[bootstrap_room patch] Patched {p_utils}")
