@@ -339,27 +339,44 @@ if [[ -f /configs/install-torchao.sh ]]; then
   bash /configs/install-torchao.sh
 fi
 
-# Patch bootstrap_room: change dtype from int64 to uint64 to test if this
-# alone fixes the "Overflow when unpacking long long" error.
+# Patch bootstrap_room overflow: Dynamo generates u64 room IDs that can exceed
+# int64 max, causing "Overflow when unpacking long long" in PyTorch scalar
+# assignment.  Fix: change buffer dtype to uint64, and use numpy+copy_ to
+# bypass PyTorch's broken scalar unpacking path (pytorch/pytorch#159168).
 python3 - <<'PY'
 from pathlib import Path
-import re
 
-p = Path("/sgl-workspace/sglang/python/sglang/srt/disaggregation/utils.py")
-txt = p.read_text()
+p_utils = Path("/sgl-workspace/sglang/python/sglang/srt/disaggregation/utils.py")
+txt = p_utils.read_text()
 
-txt2 = re.sub(
-    r"(self\.bootstrap_room\s*=\s*torch\.zeros\(\s*\(size,\s*8\),\s*dtype=torch\.)int64",
-    r"\1uint64",
-    txt,
-    count=1,
+# 1. Change buffer dtype from int64 to uint64
+old_dtype = "self.bootstrap_room = torch.zeros(\n                (size, 8), dtype=torch.int64, device=device\n            )"
+new_dtype = "self.bootstrap_room = torch.zeros(\n                (size, 8), dtype=torch.uint64, device=device\n            )"
+if old_dtype not in txt:
+    raise SystemExit(f"[bootstrap_room patch] dtype pattern not found in {p_utils}")
+txt = txt.replace(old_dtype, new_dtype, 1)
+
+# 2. Change set_buf to use numpy + copy_ instead of scalar assignment
+old_set = (
+    "self.bootstrap_room[req.metadata_buffer_index, 0] = (\n"
+    "            req.bootstrap_room if req.bootstrap_room is not None else 0\n"
+    "        )"
 )
+new_set = (
+    "_br = req.bootstrap_room if req.bootstrap_room is not None else 0\n"
+    "        self.bootstrap_room[req.metadata_buffer_index, 0:1].copy_(\n"
+    "            torch.from_numpy(np.array([_br], dtype=np.uint64)))"
+)
+if old_set not in txt:
+    raise SystemExit(f"[bootstrap_room patch] set_buf pattern not found in {p_utils}")
+txt = txt.replace(old_set, new_set, 1)
 
-if txt2 == txt:
-    raise SystemExit(f"[bootstrap_room patch] Pattern not found in {p} (file changed?)")
+# 3. Ensure numpy is imported
+if "import numpy as np" not in txt:
+    txt = "import numpy as np\n" + txt
 
-p.write_text(txt2)
-print(f"[bootstrap_room patch] Patched {p} to use torch.uint64 for bootstrap_room")
+p_utils.write_text(txt)
+print(f"[bootstrap_room patch] Patched {p_utils}")
 PY
 
 # Start encoder-only servers on the first allocated node (reserved when infra.etcd_nats_dedicated_node=true)
@@ -536,27 +553,44 @@ if [[ -f /configs/install-torchao.sh ]]; then
   bash /configs/install-torchao.sh
 fi
 
-# Patch bootstrap_room: change dtype from int64 to uint64 to test if this
-# alone fixes the "Overflow when unpacking long long" error.
+# Patch bootstrap_room overflow: Dynamo generates u64 room IDs that can exceed
+# int64 max, causing "Overflow when unpacking long long" in PyTorch scalar
+# assignment.  Fix: change buffer dtype to uint64, and use numpy+copy_ to
+# bypass PyTorch's broken scalar unpacking path (pytorch/pytorch#159168).
 python3 - <<'PY'
 from pathlib import Path
-import re
 
-p = Path("/sgl-workspace/sglang/python/sglang/srt/disaggregation/utils.py")
-txt = p.read_text()
+p_utils = Path("/sgl-workspace/sglang/python/sglang/srt/disaggregation/utils.py")
+txt = p_utils.read_text()
 
-txt2 = re.sub(
-    r"(self\.bootstrap_room\s*=\s*torch\.zeros\(\s*\(size,\s*8\),\s*dtype=torch\.)int64",
-    r"\1uint64",
-    txt,
-    count=1,
+# 1. Change buffer dtype from int64 to uint64
+old_dtype = "self.bootstrap_room = torch.zeros(\n                (size, 8), dtype=torch.int64, device=device\n            )"
+new_dtype = "self.bootstrap_room = torch.zeros(\n                (size, 8), dtype=torch.uint64, device=device\n            )"
+if old_dtype not in txt:
+    raise SystemExit(f"[bootstrap_room patch] dtype pattern not found in {p_utils}")
+txt = txt.replace(old_dtype, new_dtype, 1)
+
+# 2. Change set_buf to use numpy + copy_ instead of scalar assignment
+old_set = (
+    "self.bootstrap_room[req.metadata_buffer_index, 0] = (\n"
+    "            req.bootstrap_room if req.bootstrap_room is not None else 0\n"
+    "        )"
 )
+new_set = (
+    "_br = req.bootstrap_room if req.bootstrap_room is not None else 0\n"
+    "        self.bootstrap_room[req.metadata_buffer_index, 0:1].copy_(\n"
+    "            torch.from_numpy(np.array([_br], dtype=np.uint64)))"
+)
+if old_set not in txt:
+    raise SystemExit(f"[bootstrap_room patch] set_buf pattern not found in {p_utils}")
+txt = txt.replace(old_set, new_set, 1)
 
-if txt2 == txt:
-    raise SystemExit(f"[bootstrap_room patch] Pattern not found in {p} (file changed?)")
+# 3. Ensure numpy is imported
+if "import numpy as np" not in txt:
+    txt = "import numpy as np\n" + txt
 
-p.write_text(txt2)
-print(f"[bootstrap_room patch] Patched {p} to use torch.uint64 for bootstrap_room")
+p_utils.write_text(txt)
+print(f"[bootstrap_room patch] Patched {p_utils}")
 PY
 EOF
     chmod +x configs/qwen3.5-pd-setup.sh
