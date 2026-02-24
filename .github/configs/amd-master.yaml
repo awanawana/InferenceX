@@ -938,7 +938,7 @@ dsr1-fp4-mi355x-sglang-disagg:
         num-worker: 1
         tp: 1
         ep: 8
-        dp-attn: true
+        dp-attn: false
         additional-settings:
         - "PREFILL_NODES=1"
       decode:
@@ -957,7 +957,7 @@ dsr1-fp4-mi355x-sglang-disagg:
         num-worker: 1
         tp: 8
         ep: 8
-        dp-attn: true
+        dp-attn: false
         additional-settings:
         - "PREFILL_NODES=1"
 
@@ -976,7 +976,7 @@ dsr1-fp4-mi355x-sglang-disagg:
         num-worker: 1
         tp: 8
         ep: 1
-        dp-attn: true
+        dp-attn: false
         additional-settings:
         - "PREFILL_NODES=1"
 
@@ -997,7 +997,7 @@ dsr1-fp4-mi355x-sglang-disagg:
         num-worker: 1
         tp: 1
         ep: 8
-        dp-attn: true
+        dp-attn: false
         additional-settings:
         - "PREFILL_NODES=1"
       decode:
@@ -1016,7 +1016,7 @@ dsr1-fp4-mi355x-sglang-disagg:
         num-worker: 1
         tp: 8
         ep: 8
-        dp-attn: true
+        dp-attn: false
         additional-settings:
         - "PREFILL_NODES=1"
 
@@ -1035,7 +1035,7 @@ dsr1-fp4-mi355x-sglang-disagg:
         num-worker: 1
         tp: 8
         ep: 1
-        dp-attn: true
+        dp-attn: false
         additional-settings:
         - "PREFILL_NODES=1"
 
@@ -1059,7 +1059,7 @@ dsr1-fp4-mi355x-sglang-disagg:
         num-worker: 1
         tp: 1
         ep: 8
-        dp-attn: true
+        dp-attn: false
         additional-settings:
         - "PREFILL_NODES=1"
       decode:
@@ -1078,7 +1078,7 @@ dsr1-fp4-mi355x-sglang-disagg:
         num-worker: 1
         tp: 8
         ep: 8
-        dp-attn: true
+        dp-attn: false
         additional-settings:
         - "PREFILL_NODES=1"
 
@@ -1097,7 +1097,7 @@ dsr1-fp4-mi355x-sglang-disagg:
         num-worker: 1
         tp: 8
         ep: 1
-        dp-attn: true
+        dp-attn: false
         additional-settings:
         - "PREFILL_NODES=1"
 
@@ -1118,7 +1118,7 @@ dsr1-fp4-mi355x-sglang-disagg:
         num-worker: 1
         tp: 1
         ep: 8
-        dp-attn: true
+        dp-attn: false
         additional-settings:
         - "PREFILL_NODES=1"
       decode:
@@ -1137,7 +1137,7 @@ dsr1-fp4-mi355x-sglang-disagg:
         num-worker: 1
         tp: 8
         ep: 8
-        dp-attn: true
+        dp-attn: false
         additional-settings:
         - "PREFILL_NODES=1"
 
@@ -1156,7 +1156,7 @@ dsr1-fp4-mi355x-sglang-disagg:
         num-worker: 1
         tp: 8
         ep: 1
-        dp-attn: true
+        dp-attn: false
         additional-settings:
         - "PREFILL_NODES=1"
 
