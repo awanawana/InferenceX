@@ -712,3 +712,24 @@
     - "Image: vllm/vllm-openai:v0.15.1"
     - "TP=8, concurrency 4-64 for 1k1k, 1k8k, and 8k1k sequence lengths"
   pr-link: https://github.com/SemiAnalysisAI/InferenceX/pull/735
+
+- config-keys:
+    - dsr1-fp4-b300-sglang
+    - dsr1-fp4-b300-trt
+    - dsr1-fp4-b300-trt-mtp
+    - dsr1-fp8-b300-sglang
+    - dsr1-fp8-b300-sglang-mtp
+    - dsr1-fp8-b300-trt
+    - dsr1-fp8-b300-trt-mtp
+    - gptoss-fp4-b300-trt
+    - gptoss-fp4-b300-vllm
+  description:
+    - "Add B300 single-node benchmark configurations for GPT OSS and DeepSeek R1"
+    - "Add single-node path to runners/launch_b300-nv.sh for sglang, trt, and vllm frameworks"
+    - "Add benchmark scripts: gptoss_fp4_b300.sh (vLLM), gptoss_fp4_b300_trt.sh (TRT LLM)"
+    - "Add benchmark scripts: dsr1_fp4_b300.sh, dsr1_fp8_b300.sh, dsr1_fp8_b300_mtp.sh (SGLang)"
+    - "Add benchmark scripts: dsr1_fp4_b300_trt.sh, dsr1_fp4_b300_trt_mtp.sh, dsr1_fp8_b300_trt.sh, dsr1_fp8_b300_trt_mtp.sh (TRT LLM)"
+    - "SGLang images: lmsysorg/sglang:v0.5.8.post1-cu130"
+    - "TRT LLM images: nvcr.io#nvidia/tensorrt-llm/release:1.2.0rc6.post2/post3"
+    - "vLLM image: vllm/vllm-openai:v0.13.0"
+  pr-link: https://github.com/SemiAnalysisAI/InferenceX/pull/XXX
