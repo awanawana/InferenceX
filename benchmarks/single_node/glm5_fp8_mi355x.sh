@@ -15,8 +15,10 @@ if [[ -n "$SLURM_JOB_ID" ]]; then
   echo "JOB $SLURM_JOB_ID running on $SLURMD_NODENAME"
 fi
 
-# GLM-5 requires latest transformers for glm_moe_dsa model type support
-pip install git+https://github.com/huggingface/transformers.git
+# GLM-5 requires transformers with glm_moe_dsa model type support.
+# However, the Image rocm/sgl-dev:v0.5.8.post1-rocm720-mi35x-20260219 doesn't provide this support.
+python -m pip install -U --no-cache-dir \
+  "git+https://github.com/huggingface/transformers.git@6ed9ee36f608fd145168377345bfc4a5de12e1e2"
 
 hf download "$MODEL"
 
@@ -30,6 +32,8 @@ python3 -m sglang.launch_server \
     --port $PORT \
     --tensor-parallel-size $TP \
     --trust-remote-code \
+    --tool-call-parser glm47 \
+    --reasoning-parser glm45 \
     --mem-fraction-static 0.8 \
     --nsa-prefill-backend tilelang \
     --nsa-decode-backend tilelang > $SERVER_LOG 2>&1 &
