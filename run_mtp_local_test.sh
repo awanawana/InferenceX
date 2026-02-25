@@ -4,18 +4,19 @@ set -euo pipefail
 # =============================================================================
 # Local MTP Benchmark Test
 # Config: dsr1-fp4-mi355x-sglang-mtp
-# Scenario: ISL=1024, OSL=1024, TP=8, CONC=64
+# Accepts ISL, OSL, CONC, TP as environment variables for sweep usage.
 # =============================================================================
 
 # ---- Section 1: Environment variables ----
 
-IMAGE="lmsysorg/sglang:v0.5.8-rocm700-mi35x"
-MODEL="amd/DeepSeek-R1-0528-MXFP4-Preview"
-TP=8
-CONC=64
-ISL=1024
-OSL=1024
-RANDOM_RANGE_RATIO=0.8
+IMAGE="${IMAGE:-lmsysorg/sglang:v0.5.9-rocm720-mi35x}"
+MODEL="${MODEL:-amd/DeepSeek-R1-0528-MXFP4-Preview}"
+DRAFT_MODEL="${DRAFT_MODEL:-lmsys/DeepSeek-R1-NextN}"
+TP="${TP:-8}"
+CONC="${CONC:-64}"
+ISL="${ISL:-1024}"
+OSL="${OSL:-1024}"
+RANDOM_RANGE_RATIO="${RANDOM_RANGE_RATIO:-0.8}"
 
 WORKSPACE="/home/amd/InferenceX"
 HF_CACHE_HOST="/data/hf-hub-cache"
@@ -25,7 +26,11 @@ AITER_JIT_CACHE_CONTAINER="/data/aiter-jit-cache"
 LOG_DIR="/home/amd/logs/mtp"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
-RESULT_FILENAME="dsr1_1k1k_fp4_sglang_tp${TP}-ep1-dpafalse_disagg-false_spec-mtp_conc${CONC}_local"
+_fmt_len() { if [[ "$1" -ge 1024 ]]; then echo "$(( $1 / 1024 ))k"; else echo "$1"; fi; }
+ISL_TAG=$(_fmt_len "${ISL}")
+OSL_TAG=$(_fmt_len "${OSL}")
+
+RESULT_FILENAME="dsr1_${ISL_TAG}${OSL_TAG}_fp4_sglang_tp${TP}-ep1-dpafalse_disagg-false_spec-mtp_conc${CONC}_local"
 CONTAINER_NAME="mtp-bench-${TIMESTAMP}"
 DOCKER_LOG="${LOG_DIR}/docker_${TIMESTAMP}.log"
 
@@ -34,18 +39,20 @@ DOCKER_LOG="${LOG_DIR}/docker_${TIMESTAMP}.log"
 mkdir -p "${LOG_DIR}"
 mkdir -p "${AITER_JIT_CACHE_HOST}"
 
-MODEL_CACHE_DIR="${HF_CACHE_HOST}/models--$(echo "${MODEL}" | sed 's|/|--|g')"
-if [[ ! -d "${MODEL_CACHE_DIR}" ]]; then
-    echo "WARNING: Model '${MODEL}' not found in cache at ${MODEL_CACHE_DIR}"
-    echo "Available cached models:"
-    ls -d "${HF_CACHE_HOST}"/models--* 2>/dev/null || echo "  (none)"
-    echo ""
-    echo "The container will attempt to download it, which may take a long time."
-    echo "Press Ctrl+C within 10s to abort, or wait to continue..."
-    sleep 10
-else
-    echo "OK: Model cache found at ${MODEL_CACHE_DIR}"
-fi
+for _model in "${MODEL}" "${DRAFT_MODEL}"; do
+    _cache_dir="${HF_CACHE_HOST}/models--$(echo "${_model}" | sed 's|/|--|g')"
+    if [[ ! -d "${_cache_dir}" ]]; then
+        echo "WARNING: Model '${_model}' not found in cache at ${_cache_dir}"
+        echo "Available cached models:"
+        ls -d "${HF_CACHE_HOST}"/models--* 2>/dev/null || echo "  (none)"
+        echo ""
+        echo "The container will attempt to download it, which may take a long time."
+        echo "Press Ctrl+C within 10s to abort, or wait to continue..."
+        sleep 10
+    else
+        echo "OK: Model cache found at ${_cache_dir}"
+    fi
+done
 
 if [[ -d "${AITER_JIT_CACHE_HOST}/build" ]]; then
     echo "OK: Aiter JIT cache found -- JIT compilation will be skipped (~18 min saved)"
@@ -58,6 +65,7 @@ echo " MTP Benchmark Local Test"
 echo "============================================"
 echo " Image:       ${IMAGE}"
 echo " Model:       ${MODEL}"
+echo " Draft model: ${DRAFT_MODEL}"
 echo " TP=${TP}  CONC=${CONC}  ISL=${ISL}  OSL=${OSL}"
 echo " Log dir:     ${LOG_DIR}"
 echo " Aiter cache: ${AITER_JIT_CACHE_HOST}"
@@ -79,6 +87,7 @@ docker run --rm \
     -w /workspace \
     -e AITER_JIT_DIR="${AITER_JIT_CACHE_CONTAINER}" \
     -e MODEL="${MODEL}" \
+    -e DRAFT_MODEL="${DRAFT_MODEL}" \
     -e TP="${TP}" \
     -e CONC="${CONC}" \
     -e ISL="${ISL}" \

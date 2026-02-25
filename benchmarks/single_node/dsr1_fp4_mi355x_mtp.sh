@@ -27,7 +27,11 @@ if [[ "$ISL" == "8192" && "$OSL" == "1024" ]]; then
 	fi
 fi
 
+DRAFT_MODEL="${DRAFT_MODEL:-lmsys/DeepSeek-R1-NextN}"
+
+# MTP_SERVER_ARGS="--speculative-algorithm NEXTN \
 MTP_SERVER_ARGS="--speculative-algorithm EAGLE \
+    --speculative-draft-model-path ${DRAFT_MODEL} \
     --speculative-num-steps 3 \
     --speculative-eagle-topk 1 \
     --speculative-num-draft-tokens 4 \
@@ -37,6 +41,8 @@ SERVER_LOG=/workspace/server.log
 PORT=${PORT:-8888}
 
 set -x
+# python3 -m sglang.launch_server --model-path=$MODEL --trust-remote-code \
+# --dtype bfloat16 \
 python3 -m sglang.launch_server --model-path=$MODEL --trust-remote-code \
 --host=0.0.0.0 --port=$PORT \
 --tensor-parallel-size=$TP \

@@ -22,7 +22,7 @@ dsr1-fp4-mi355x-sglang:
     - { tp: 8, conc-start: 4, conc-end: 64 }
 
 dsr1-fp4-mi355x-sglang-mtp:
-  image: lmsysorg/sglang:v0.5.8-rocm700-mi35x
+  image: lmsysorg/sglang:v0.5.9-rocm720-mi35x
   model: amd/DeepSeek-R1-0528-MXFP4-Preview
   model-prefix: dsr1
   runner: mi355x
