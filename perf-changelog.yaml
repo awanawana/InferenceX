@@ -723,7 +723,7 @@
     - "Gains: CUTLASS MoE optimizations (~8% throughput), FP4 kernel improvements (~4% E2E on B200), torch.compile cold-start fix"
     - "v0.15.1 includes fix for prefix cache hit rate of 0% on GPT-OSS hybrid attention models"
   pr-link: https://github.com/SemiAnalysisAI/InferenceX/pull/789
-  
+
 - config-keys:
     - dsr1-fp4-mi355x-atom
     - dsr1-fp4-mi355x-atom-mtp
@@ -733,4 +733,23 @@
     - "Extend concurrency range to conc-end: 256 across all sequence lengths (1k1k, 1k8k, 8k1k)"
     - "Fix MTP 1k8k conc-start from 256 to 4 to enable full concurrency sweep"
   pr-link: https://github.com/SemiAnalysisAI/InferenceX/pull/699
-  
+
+- config-keys:
+    - dsr1-fp4-b300-sglang
+    - dsr1-fp4-b300-trt
+    - dsr1-fp4-b300-trt-mtp
+    - dsr1-fp8-b300-sglang
+    - dsr1-fp8-b300-sglang-mtp
+    - dsr1-fp8-b300-trt
+    - dsr1-fp8-b300-trt-mtp
+    - gptoss-fp4-b300-trt
+    - gptoss-fp4-b300-vllm
+  description:
+    - "Add B300 single-node benchmark configurations for GPT OSS and DeepSeek R1"
+    - "Add single-node path to runners/launch_b300-nv.sh for sglang, trt, and vllm frameworks"
+    - "Add 9 benchmark scripts for B300 single-node (vLLM, SGLang, TRT LLM)"
+    - "vLLM image: vllm/vllm-openai:v0.15.1"
+    - "SGLang image: lmsysorg/sglang:v0.5.9-cu130"
+    - "TRT LLM image: nvcr.io#nvidia/tensorrt-llm/release:1.3.0rc5"
+    - "Remove deprecated async-scheduling flag from vLLM script (default since v0.14.0)"
+  pr-link: https://github.com/SemiAnalysisAI/InferenceX/pull/XXX
