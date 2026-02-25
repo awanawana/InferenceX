@@ -25,6 +25,7 @@ On the client side, run:
 """
 import argparse
 import asyncio
+import aiohttp
 import base64
 import gc
 import io
@@ -86,6 +87,7 @@ class BenchmarkMetrics:
     median_e2el_ms: float
     std_e2el_ms: float
     percentiles_e2el_ms: List[Tuple[float, float]]
+    mtp_avg_spec_acceptance_length: Optional[float]
 
 
 def sample_random_requests(
@@ -221,6 +223,7 @@ def calculate_metrics(
     selected_percentile_metrics: List[str],
     selected_percentiles: List[float],
     goodput_config_dict: Dict[str, float],
+    mtp_avg_spec_acceptance_length: Optional[float]
 ) -> Tuple[BenchmarkMetrics, List[int]]:
     actual_output_lens: List[int] = []
     total_input = 0
@@ -316,6 +319,7 @@ def calculate_metrics(
         median_e2el_ms=np.median(e2els or 0) * 1000,
         percentiles_e2el_ms=[(p, np.percentile(e2els or 0, p) * 1000)
                              for p in selected_percentiles],
+        mtp_avg_spec_acceptance_length=mtp_avg_spec_acceptance_length
     )
 
     return metrics, actual_output_lens
@@ -481,6 +485,22 @@ async def benchmark(
 
     benchmark_duration = time.perf_counter() - benchmark_start_time
 
+    # Fetch MTP avg acceptance length - this is only enabled for sglang at the moment
+    # vLLM uses /metrics (Prometheus); ATOM/TRT do not expose this. Fails gracefully.
+    mtp_avg_spec_acceptance_length = None
+    if backend == "sglang":
+        try:
+            server_info_url = base_url.rstrip("/") + "/server_info"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(server_info_url) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        internal = data.get("internal_states") or []
+                        if internal:
+                            mtp_avg_spec_acceptance_length = internal[0].get("avg_spec_accept_length")
+        except Exception:
+            pass
+
     metrics, actual_output_lens = calculate_metrics(
         input_requests=input_requests,
         outputs=outputs,
@@ -489,6 +509,7 @@ async def benchmark(
         selected_percentile_metrics=selected_percentile_metrics,
         selected_percentiles=selected_percentiles,
         goodput_config_dict=goodput_config_dict,
+        mtp_avg_spec_acceptance_length=mtp_avg_spec_acceptance_length,
     )
 
     print("{s:{c}^{n}}".format(s=' Serving Benchmark Result ', n=50, c='='))
@@ -507,6 +528,10 @@ async def benchmark(
                                     metrics.output_throughput))
     print("{:<40} {:<10.2f}".format("Total Token throughput (tok/s):",
                                     metrics.total_token_throughput))
+    if metrics.mtp_avg_spec_acceptance_length is not None:
+        print("{:<40} {:<10.2f}".format(
+            "MTP avg spec acceptance length:",
+            metrics.mtp_avg_spec_acceptance_length))
 
     result = {
         "duration": benchmark_duration,
@@ -524,6 +549,8 @@ async def benchmark(
         "itls": [output.itl for output in outputs],
         "generated_texts": [output.generated_text for output in outputs],
         "errors": [output.error for output in outputs],
+        "mtp_avg_spec_acceptance_length":
+        metrics.mtp_avg_spec_acceptance_length,
     }
 
     def process_one_metric(
