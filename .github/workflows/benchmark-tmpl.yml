@@ -90,7 +90,7 @@ permissions:
 jobs:
   benchmark:
     runs-on: ${{ inputs.runner }}
-    timeout-minutes: 180
+    timeout-minutes: 240
     name: "${{ inputs.exp-name }} ${{ inputs.precision }} ${{ inputs.runner }} ${{ inputs.framework }} | tp=${{ inputs.tp }} ep=${{ inputs.ep }} dpa=${{ inputs.dp-attn }} | disagg-${{ inputs.disagg }} spec-${{ inputs.spec-decoding }} conc-${{ inputs.conc }}${{ inputs.run-eval && ' | eval' || '' }}"
     steps:
       - name: Resource cleanup (pre-run)
@@ -108,7 +108,7 @@ jobs:
 
           # Cleanup SLURM resources
           if command -v squeue >/dev/null 2>&1; then
-            if [[ "${{ runner.name }}" == mi355x-amds* ]]; then
+            if [[ "${{ runner.name }}" == mi355x-amds* || "${{ runner.name }}" == b200-dgxc-slurm* ]]; then
               echo "[Slurm] Cleaning up jobs with name: ${{ runner.name }} ..."
               scancel --name="${{ runner.name }}" || true
               while [ -n "$(squeue --name='${{ runner.name }}' --noheader --format='%i')" ]; do
