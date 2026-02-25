@@ -19,13 +19,13 @@ import aiohttp  # type: ignore
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
 from tqdm import tqdm  # type: ignore
-from bench_dataset import (
+from bench.bench_dataset import (
     ConversationsMap,
     ConvId,
     MessagesList,
 )
-from bench_utils import TEXT_SEPARATOR, Color, logger
-from metrics_collector import MetricsCollector
+from bench.bench_utils import TEXT_SEPARATOR, Color, logger
+from bench.metrics_collector import MetricsCollector
 from transformers import AutoTokenizer  # type: ignore
 
 NUM_TOKENS_FROM_DATASET = 0

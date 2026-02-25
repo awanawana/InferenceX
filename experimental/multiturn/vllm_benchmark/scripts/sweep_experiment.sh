@@ -212,7 +212,7 @@ EOF
         # Run benchmark
         local num_requests=$((bs * 10))
         echo "Running benchmark (bs=$bs, num_requests=$num_requests)..."
-        local benchmark_cmd="python3 benchmark_serving_multi_turn.py"
+        local benchmark_cmd="python3 benchmark/benchmark_serving_multi_turn.py"
         benchmark_cmd+=" -i $INPUT_FILE"
         benchmark_cmd+=" -m $MODEL"
         benchmark_cmd+=" -u http://localhost:$PORT"

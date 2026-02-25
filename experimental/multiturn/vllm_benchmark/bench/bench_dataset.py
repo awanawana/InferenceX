@@ -6,7 +6,7 @@ from typing import Any, NamedTuple
 
 import numpy as np  # type: ignore
 import pandas as pd  # type: ignore
-from bench_utils import (
+from bench.bench_utils import (
     TEXT_SEPARATOR,
     Color,
     logger,

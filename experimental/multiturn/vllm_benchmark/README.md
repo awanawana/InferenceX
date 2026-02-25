@@ -1,6 +1,6 @@
 # Benchmark KV Cache Offloading with Multi-Turn Conversations
 
-The requirements (pip) for `benchmark_serving_multi_turn.py` can be found in `requirements.txt`
+The requirements (pip) for `benchmark/benchmark_serving_multi_turn.py` can be found in `requirements.txt`
 
 First start serving your model
 
@@ -30,7 +30,7 @@ Then run the benchmarking script
 ```bash
 export MODEL_PATH=/models/meta-llama/Meta-Llama-3.1-8B-Instruct/
 
-python benchmark_serving_multi_turn.py --model $MODEL_PATH --served-model-name Llama \
+python benchmark/benchmark_serving_multi_turn.py --model $MODEL_PATH --served-model-name Llama \
 --input-file generate_multi_turn.json --num-clients 2 --max-active-conversations 6
 ```
 
@@ -165,14 +165,14 @@ Using the parameters of the underlying normal distribution:
 To run with the ShareGPT data, download the following ShareGPT dataset:
 `https://huggingface.co/datasets/philschmid/sharegpt-raw/blob/main/sharegpt_20230401_clean_lang_split.json`
 
-Use the `convert_sharegpt_to_openai.py` script to convert the dataset to a format supported by `benchmark_serving_multi_turn.py`
+Use the `data_prep/convert_sharegpt_to_openai.py` script to convert the dataset to a format supported by `benchmark/benchmark_serving_multi_turn.py`
 
 ```bash
-python convert_sharegpt_to_openai.py sharegpt_20230401_clean_lang_split.json sharegpt_conv_128.json --seed=99 --max-items=128
+python data_prep/convert_sharegpt_to_openai.py sharegpt_20230401_clean_lang_split.json sharegpt_conv_128.json --seed=99 --max-items=128
 ```
 
 The script will convert the ShareGPT dataset to a dataset with the standard user/assistant roles.
 
 The flag `--max-items=128` is used to sample 128 conversations from the original dataset (change as needed).
 
-Use the output JSON file `sharegpt_conv_128.json` as the `--input-file` for `benchmark_serving_multi_turn.py`.
+Use the output JSON file `sharegpt_conv_128.json` as the `--input-file` for `benchmark/benchmark_serving_multi_turn.py`.
