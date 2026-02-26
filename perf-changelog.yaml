@@ -733,4 +733,15 @@
     - "Extend concurrency range to conc-end: 256 across all sequence lengths (1k1k, 1k8k, 8k1k)"
     - "Fix MTP 1k8k conc-start from 256 to 4 to enable full concurrency sweep"
   pr-link: https://github.com/SemiAnalysisAI/InferenceX/pull/699
+
+- config-keys:
+    - gptoss-fp4-b200-vllm
+    - gptoss-fp4-h100-vllm
+    - gptoss-fp4-h200-vllm
+  description:
+    - "Update vLLM image from v0.15.1 to v0.16.0 for NVIDIA GPT-OSS configs"
+    - "Add async-scheduling and stream-interval: 20 per official vLLM recipes"
+    - "H100/H200: Remove VLLM_MXFP4_USE_MARLIN=1, switch to default Triton backend (OpenAI triton kernels)"
+    - "B200: Keep VLLM_USE_FLASHINFER_MOE_MXFP4_MXFP8=1 per official recipe"
+  pr-link: https://github.com/SemiAnalysisAI/InferenceX/pull/XXX
   

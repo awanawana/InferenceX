@@ -31,17 +31,17 @@ fi
 
 # Create config.yaml
 cat > config.yaml << EOF
+async-scheduling: true
 no-enable-prefix-caching: true
 max-cudagraph-capture-size: 2048
 max-num-batched-tokens: 8192
+stream-interval: 20
 max-model-len: $CALCULATED_MAX_MODEL_LEN
 EOF
 
 SERVER_LOG=/workspace/server.log
 export TORCH_CUDA_ARCH_LIST="9.0"
 PORT=${PORT:-8888}
-
-export VLLM_MXFP4_USE_MARLIN=1
 
 PYTHONNOUSERSITE=1 vllm serve $MODEL --host 0.0.0.0 --port $PORT \
  --config config.yaml \

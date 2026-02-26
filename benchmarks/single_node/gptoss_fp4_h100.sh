@@ -18,14 +18,15 @@ fi
 hf download "$MODEL"
 
 cat > config.yaml << EOF
+async-scheduling: true
 no-enable-prefix-caching: true
 max-cudagraph-capture-size: 2048
 max-num-batched-tokens: 8192
+stream-interval: 20
 max-model-len: 10240
 EOF
 
 export PYTHONNOUSERSITE=1
-export VLLM_MXFP4_USE_MARLIN=1
 SERVER_LOG=/workspace/server.log
 PORT=${PORT:-8888}
 
