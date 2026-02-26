@@ -22,8 +22,8 @@ from datasets import load_dataset
 
 
 def load_wildchat() -> tuple[list[int], list[int]]:
-    """Load WildChat dataset and get turns and user tokens per conversation."""
-    print("Loading WildChat dataset from HuggingFace...")
+    """Load inferencemax/WildChat-4.8M-4o-tokcount dataset and get turns and user tokens per conversation."""
+    print("Loading inferencemax/WildChat-4.8M-4o-tokcount dataset from HuggingFace...")
 
     dataset = load_dataset("inferencemax/WildChat-4.8M-4o-tokcount", split="train")
     print(f"Loaded {len(dataset):,} conversations")
