@@ -1,6 +1,6 @@
 dsr1-fp4-mi355x-sglang:
   image: lmsysorg/sglang:v0.5.8-rocm700-mi35x
-  model: amd/DeepSeek-R1-0528-MXFP4-Preview
+  model: amd/DeepSeek-R1-0528-MXFP4
   model-prefix: dsr1
   runner: mi355x
   precision: fp4
@@ -23,7 +23,7 @@ dsr1-fp4-mi355x-sglang:
 
 dsr1-fp4-mi355x-atom:
   image: rocm/atom:rocm7.1.1-ubuntu24.04-pytorch2.9-atom0.1.1-MI350x
-  model: amd/DeepSeek-R1-0528-MXFP4-Preview
+  model: amd/DeepSeek-R1-0528-MXFP4
   model-prefix: dsr1
   runner: mi355x
   precision: fp4
