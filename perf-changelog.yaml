@@ -734,7 +734,7 @@
     - "Fix MTP 1k8k conc-start from 256 to 4 to enable full concurrency sweep"
   pr-link: https://github.com/SemiAnalysisAI/InferenceX/pull/699
  
- - config-keys:
+- config-keys:
     - glm5-fp8-mi355x-sglang
   description:
     - "Add GLM-5 FP8 SGLang benchmark for MI355X"
