@@ -733,4 +733,19 @@
     - "Extend concurrency range to conc-end: 256 across all sequence lengths (1k1k, 1k8k, 8k1k)"
     - "Fix MTP 1k8k conc-start from 256 to 4 to enable full concurrency sweep"
   pr-link: https://github.com/SemiAnalysisAI/InferenceX/pull/699
-  
+
+- config-keys:
+    - gptoss-fp4-mi300x-vllm
+    - gptoss-fp4-mi325x-vllm
+    - gptoss-fp4-mi355x-vllm
+  description:
+    - "Update vLLM ROCm image from v0.15.1 to v0.16.0 for MI300X and MI325X, from v0.10.1 to v0.16.0 for MI355X"
+    - "MI355X: Move from AMD-internal image (rocm/7.0) to upstream vllm/vllm-openai-rocm"
+    - "MI355X: Remove deprecated --async-scheduling and --max-seq-len-to-capture flags"
+    - "MI355X: Fix env vars (VLLM_USE_AITER_UNIFIED_ATTENTION -> VLLM_ROCM_USE_AITER_UNIFIED_ATTENTION, add VLLM_ROCM_USE_AITER=1)"
+    - "MI355X: Remove invalid VLLM_ROCM_USE_AITER_FUSED_MOE_A16W4 env var"
+    - "MI355X: Replace complex custom compilation config with standard FULL_AND_PIECEWISE cudagraph mode"
+    - "MI355X: Add MEC firmware check and HIP_VISIBLE_DEVICES Ray compatibility"
+    - "Gains: AITER fused_add_rmsnorm_pad for GPT-OSS (eliminates extra MoE padding), FP8 kernel tunings for MI300X"
+  pr-link: https://github.com/SemiAnalysisAI/InferenceX/pull/XXX
+
